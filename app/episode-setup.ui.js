@@ -7,6 +7,7 @@
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
+  const CV = window.PdcEpisodeCanvas;
   const root = document.getElementById("app");
   const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
@@ -20,6 +21,42 @@
   let styleSelection = STY ? STY.createSelection() : null;
   let appliedStyle = null;
   let layoutCustomized = false;
+  // Canvas editor state (#11): the working layout, a status line, and the reusable show
+  // template library. Templates persist to localStorage so they are available next episode.
+  let canvasLayout = null;
+  let canvasMessage = null;
+  let canvasDraftName = "";
+  const TEMPLATE_KEY = "pdc.showTemplates.v1";
+  let templateStore = loadTemplates();
+
+  function loadTemplates() {
+    if (!CV) {
+      return null;
+    }
+    try {
+      const raw = window.localStorage ? window.localStorage.getItem(TEMPLATE_KEY) : null;
+      const parsed = raw ? JSON.parse(raw) : null;
+      return CV.createStore(parsed && typeof parsed === "object" ? parsed : {});
+    } catch (err) {
+      return CV.createStore({});
+    }
+  }
+
+  function persistTemplates() {
+    if (!CV || !templateStore) {
+      return;
+    }
+    try {
+      if (window.localStorage) {
+        window.localStorage.setItem(
+          TEMPLATE_KEY,
+          JSON.stringify({ seq: templateStore.seq, templates: templateStore.templates }),
+        );
+      }
+    } catch (err) {
+      // Persistence is best-effort; the editor still works in-session without storage.
+    }
+  }
 
   function setStep(label) {
     if (stepPill) {
@@ -479,16 +516,31 @@
       view.appendChild(styleCard);
     }
 
-    // Next step — choose or change the visual style
+    // Next step — choose a style, then customize it in the canvas editor.
     const styleAvailable = Boolean(STY);
+    const canvasAvailable = Boolean(CV) && Boolean(appliedStyle);
+
+    // Once a style is applied, opening the canvas editor is the primary next action.
+    const editorButton = el("button", { type: "button", class: "primary" }, "Open canvas editor →");
+    editorButton.addEventListener("click", () => {
+      canvasMessage = null;
+      renderCanvasEditor(summary);
+    });
+
     const styleButton = el(
       "button",
-      { type: "button", class: "primary", disabled: styleAvailable ? null : true },
+      {
+        type: "button",
+        class: canvasAvailable ? "ghost" : "primary",
+        disabled: styleAvailable ? null : true,
+      },
       appliedStyle ? "Change style →" : "Choose a style →",
     );
     if (styleAvailable) {
       styleButton.addEventListener("click", () => renderStyle(summary));
     }
+
+    const templateCount = CV && templateStore ? CV.listTemplates(templateStore).length : 0;
     view.appendChild(
       el(
         "section",
@@ -498,10 +550,20 @@
           "p",
           {},
           appliedStyle
-            ? "Your style is set. Detailed editing and export come next."
+            ? "Your style is set. Open the canvas editor to customize the layout and save it as a reusable show template."
             : "Your sources, speaker roles, and context are saved. Pick a visual style next.",
         ),
-        el("div", { class: "actions" },
+        templateCount
+          ? el(
+              "p",
+              { class: "hint" },
+              `${templateCount} saved show template${templateCount === 1 ? "" : "s"} available for this and future episodes.`,
+            )
+          : null,
+        el(
+          "div",
+          { class: "actions" },
+          canvasAvailable ? editorButton : null,
           styleButton,
           (function () {
             const back = el("button", { type: "button", class: "ghost" }, "← Edit setup");
@@ -673,6 +735,278 @@
     const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
     back.addEventListener("click", () => renderWorkspace(summary));
     view.appendChild(el("div", { class: "actions" }, applyButton, back));
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Reusable canvas editor (#11) -------------------------------------------
+
+  function templateLayoutLabel(layoutId) {
+    if (STY && layoutId) {
+      return STY.getLayout(layoutId).label;
+    }
+    return "Custom layout";
+  }
+
+  // A live canvas preview built from the current editable layout. `refs.titleNode` is
+  // captured so the title can update live as the creator types without a full re-render.
+  function renderCanvasPreview(layout, refs) {
+    const bg = CV.findElement(layout, "background");
+    const title = CV.findElement(layout, "title");
+    const caption = CV.findElement(layout, "caption");
+    const overlay = CV.findElement(layout, "overlay");
+    const frames = layout.elements.filter((e) => e.type === "frame" && e.visible);
+    const accent = layout.accent || "#ffb347";
+
+    const stage = el("div", { class: "canvas-stage" });
+    stage.style.background = (bg && bg.color) || "#10131f";
+    stage.style.borderColor = accent;
+
+    if (title && title.visible) {
+      const titleNode = el("div", { class: "canvas-title" }, title.text || "Episode title");
+      titleNode.style.color = accent;
+      refs.titleNode = titleNode;
+      stage.appendChild(titleNode);
+    }
+
+    const frameWrap = el("div", { class: "canvas-frames" });
+    if (frames.length) {
+      frames.forEach((frame) => {
+        const frameEl = el(
+          "div",
+          { class: "canvas-frame" },
+          el("span", { class: "preview-role" }, frame.role),
+          el("span", { class: "preview-name" }, frame.name),
+        );
+        frameEl.style.borderColor = accent;
+        frameWrap.appendChild(frameEl);
+      });
+    } else {
+      frameWrap.appendChild(el("p", { class: "canvas-empty" }, "All speaker frames are hidden."));
+    }
+    stage.appendChild(frameWrap);
+
+    if (overlay && overlay.visible) {
+      const overlayEl = el("div", { class: "canvas-overlay" }, "Overlay / b-roll area");
+      overlayEl.style.borderColor = accent;
+      stage.appendChild(overlayEl);
+    }
+
+    if (caption && caption.visible) {
+      const captionEl = el("div", { class: "canvas-caption" }, `Sample caption · ${caption.captionStyle}`);
+      captionEl.style.background = accent;
+      stage.appendChild(captionEl);
+    }
+    return stage;
+  }
+
+  function seedCanvasLayout(summary) {
+    const needsSeed = !canvasLayout || (appliedStyle && canvasLayout.presetId !== appliedStyle.presetId);
+    if (needsSeed) {
+      canvasLayout = CV.openLayout({
+        style: appliedStyle,
+        speakers: summary.speakers,
+        episodeName: summary.episodeName,
+      });
+    }
+  }
+
+  function renderCanvasEditor(summary) {
+    root.innerHTML = "";
+    setStep("Step 3 of 6 · Customize canvas");
+    seedCanvasLayout(summary);
+
+    const view = el("div", { class: "canvas-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Customize canvas"),
+        el("h2", {}, `Customize ${appliedStyle.presetName} for ${summary.episodeName}`),
+        el(
+          "p",
+          { class: "hint" },
+          "Adjust each layout element by hand, then save the look as a reusable show template. The preview uses your real speakers.",
+        ),
+      ),
+    );
+
+    const grid = el("div", { class: "style-layout" });
+
+    // Live title node, captured so typing updates the preview without a full re-render.
+    const refs = {};
+    const stage = renderCanvasPreview(canvasLayout, refs);
+
+    // --- Left column: editable layout elements ---
+    const elementsCard = el(
+      "section",
+      { class: "card" },
+      el("h3", {}, "Layout elements"),
+      el("p", { class: "hint" }, "Show, hide, and adjust each layer. Changes preview live on the right."),
+    );
+
+    function visibilityToggle(element) {
+      const id = `cv-vis-${element.id}`;
+      const input = el("input", { id, type: "checkbox", checked: element.visible ? true : null });
+      input.addEventListener("change", () => {
+        canvasLayout = CV.toggleElement(canvasLayout, element.id);
+        canvasMessage = null;
+        renderCanvasEditor(summary);
+      });
+      return el("label", { class: "cv-toggle", for: id }, input, el("span", {}, element.visible ? "Visible" : "Hidden"));
+    }
+
+    canvasLayout.elements.forEach((element) => {
+      const head = el(
+        "div",
+        { class: "cv-element-head" },
+        el("span", { class: "cv-element-label" }, element.label),
+        element.id === "background" ? null : visibilityToggle(element),
+      );
+      const row = el("div", { class: "cv-element" }, head);
+
+      if (element.type === "background") {
+        const swatches = el("div", { class: "cv-swatches" });
+        const palette = [];
+        if (STY) {
+          STY.STYLE_PRESETS.forEach((preset) => {
+            if (palette.indexOf(preset.background) < 0) {
+              palette.push(preset.background);
+            }
+          });
+        }
+        if (palette.indexOf(element.color) < 0) {
+          palette.unshift(element.color);
+        }
+        palette.forEach((color) => {
+          const selected = color === element.color;
+          const swatch = el("button", {
+            type: "button",
+            class: `cv-swatch${selected ? " selected" : ""}`,
+            "aria-pressed": selected ? "true" : "false",
+            "aria-label": `Use background ${color}`,
+          });
+          swatch.style.background = color;
+          swatch.addEventListener("click", () => {
+            canvasLayout = CV.setBackgroundColor(canvasLayout, color);
+            canvasMessage = null;
+            renderCanvasEditor(summary);
+          });
+          swatches.appendChild(swatch);
+        });
+        row.appendChild(swatches);
+      } else if (element.type === "title") {
+        const titleInput = el("input", {
+          id: "cv-title",
+          type: "text",
+          value: element.text,
+          placeholder: "Episode title",
+        });
+        titleInput.addEventListener("input", (e) => {
+          canvasLayout = CV.setTitleText(canvasLayout, e.target.value);
+          if (refs.titleNode) {
+            refs.titleNode.textContent = e.target.value.trim() || "Episode title";
+          }
+        });
+        row.appendChild(titleInput);
+      } else if (element.type === "caption") {
+        row.appendChild(el("p", { class: "hint" }, `Caption style: ${element.captionStyle}`));
+      } else if (element.type === "frame") {
+        row.appendChild(el("p", { class: "hint" }, element.name));
+      } else if (element.type === "overlay") {
+        row.appendChild(el("p", { class: "hint" }, "A space for b-roll, screenshots, or visual callouts."));
+      }
+      elementsCard.appendChild(row);
+    });
+    grid.appendChild(elementsCard);
+
+    // --- Right column: preview + save + template library ---
+    const rightCol = el("div", { class: "canvas-right" });
+    rightCol.appendChild(el("section", { class: "card preview-card" }, el("h3", {}, "Canvas preview"), stage));
+
+    // Save as reusable show template
+    const saveCard = el(
+      "section",
+      { class: "card" },
+      el("h3", {}, "Save as show template"),
+      el(
+        "p",
+        { class: "hint" },
+        "Reuse this look on future episodes — it keeps the identity and adapts to each episode's speakers.",
+      ),
+    );
+    const nameInput = el("input", {
+      id: "cv-tpl-name",
+      type: "text",
+      value: canvasDraftName,
+      placeholder: "e.g. My Show — Signature Look",
+    });
+    nameInput.addEventListener("input", (e) => {
+      canvasDraftName = e.target.value;
+    });
+    const saveButton = el("button", { type: "button", class: "primary" }, "Save template");
+    saveButton.addEventListener("click", () => {
+      const check = CV.validateTemplateName(templateStore, canvasDraftName);
+      if (!check.ok) {
+        canvasMessage = { kind: "error", text: check.message };
+        renderCanvasEditor(summary);
+        return;
+      }
+      const saved = CV.saveTemplate(templateStore, canvasDraftName, canvasLayout);
+      persistTemplates();
+      canvasDraftName = "";
+      canvasMessage = { kind: "ok", text: `Saved “${saved.name}”. It's now available for future episodes.` };
+      renderCanvasEditor(summary);
+    });
+    saveCard.appendChild(field("Template name", nameInput, null));
+    saveCard.appendChild(el("div", { class: "actions" }, saveButton));
+    if (canvasMessage) {
+      saveCard.appendChild(
+        el("p", { class: canvasMessage.kind === "error" ? "field-error" : "save-ok", role: "status" }, canvasMessage.text),
+      );
+    }
+    rightCol.appendChild(saveCard);
+
+    // Saved template library — reselect a template to reuse it on this episode.
+    const templates = CV.listTemplates(templateStore);
+    const libCard = el("section", { class: "card" }, el("h3", {}, "Your show templates"));
+    if (!templates.length) {
+      libCard.appendChild(
+        el("p", { class: "hint" }, "No templates yet. Save this layout to reuse it on future episodes."),
+      );
+    } else {
+      templates.forEach((tpl) => {
+        const useButton = el("button", { type: "button", class: "ghost" }, "Use on this episode");
+        useButton.addEventListener("click", () => {
+          canvasLayout = CV.applyTemplate(tpl, summary.speakers);
+          canvasMessage = { kind: "ok", text: `Loaded “${tpl.name}” — adapted to this episode's speakers.` };
+          renderCanvasEditor(summary);
+        });
+        libCard.appendChild(
+          el(
+            "div",
+            { class: "cv-template" },
+            el(
+              "div",
+              { class: "cv-template-main" },
+              el("span", { class: "summary-name" }, tpl.name),
+              el("p", { class: "hint" }, `${tpl.presetName || "Custom"} · ${templateLayoutLabel(tpl.layoutId)}`),
+            ),
+            useButton,
+          ),
+        );
+      });
+    }
+    rightCol.appendChild(libCard);
+
+    grid.appendChild(rightCol);
+    view.appendChild(grid);
+
+    // Actions
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    view.appendChild(el("div", { class: "actions" }, back));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });

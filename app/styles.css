@@ -593,3 +593,149 @@ button:disabled {
   color: var(--ink-soft);
   margin: 10px 0 0;
 }
+
+/* ---- Reusable canvas editor (#11) ---- */
+.canvas-right {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.cv-element {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: #fcfcff;
+}
+
+.cv-element-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.cv-element-label {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.cv-element .hint {
+  margin: 0;
+}
+
+.cv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.cv-swatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cv-swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  padding: 0;
+}
+
+.cv-swatch.selected {
+  box-shadow: 0 0 0 2px var(--brand);
+}
+
+/* Canvas preview stage */
+.canvas-stage {
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 14px;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.canvas-title {
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  margin-bottom: 12px;
+}
+
+.canvas-frames {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.canvas-frame {
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 10px;
+  min-height: 70px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.canvas-empty {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  opacity: 0.85;
+  margin: 0;
+}
+
+.canvas-overlay {
+  margin-top: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.9;
+}
+
+.canvas-caption {
+  margin-top: 12px;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #10131f;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.save-ok {
+  color: var(--ok);
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+
+.cv-template {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: #fcfcff;
+}
+
+.cv-template-main .hint {
+  margin: 2px 0 0;
+}
+
+.cv-template .ghost {
+  white-space: nowrap;
+}
