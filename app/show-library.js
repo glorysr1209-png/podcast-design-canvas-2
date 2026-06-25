@@ -124,6 +124,7 @@
       presetName: opts.presetName || "",
       speakerRoles: Array.isArray(opts.speakerRoles) ? opts.speakerRoles : [],
       createdAt: opts.createdAt || Date.now(),
+      updatedAt: opts.updatedAt || opts.createdAt || Date.now(),
       exportedAt: opts.exportedAt || null,
       downloadName: opts.downloadName || "",
     };

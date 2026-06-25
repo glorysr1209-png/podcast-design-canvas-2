@@ -25,6 +25,7 @@ const required = [
   "app/show-brand-kit.js",
   "app/show-identity.js",
   "app/show-onboarding.js",
+  "app/episode-flow.js",
   "app/episode-setup.ui.js",
 ];
 
@@ -59,6 +60,7 @@ for (const file of [
   "app/show-brand-kit.js",
   "app/show-identity.js",
   "app/show-onboarding.js",
+  "app/episode-flow.js",
   "app/episode-setup.ui.js",
 ]) {
   if (!existsSync(file)) {

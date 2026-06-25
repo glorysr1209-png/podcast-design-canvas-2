@@ -5,7 +5,7 @@
 // publish review (#37), guided workspace (#40), export (#30), show library (#47),
 // show brand kits (#52), show identity episode start (#57), publish package (#60),
 // transcript correction (#63), episode import before brand setup (#73),
-// and episode import polish (#77).
+// and episode import polish (#77, #86, #89).
 (function () {
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
@@ -22,10 +22,15 @@
   const BK = window.PdcShowBrandKit;
   const SI = window.PdcShowIdentity;
   const ONB = window.PdcShowOnboarding;
+  const FLOW = window.PdcEpisodeFlow;
   const PP = window.PdcPublishPackage;
   const TC = window.PdcTranscriptCorrection;
   const root = document.getElementById("app");
-  const stepPill = document.querySelector(".step-pill");
+  const stepIndicator = document.querySelector(".workflow-step-indicator");
+  const stepCountEl = document.querySelector(".workflow-step-count");
+  const stepLabelEl = document.querySelector(".workflow-step-label");
+  const stepFillEl = document.querySelector(".workflow-step-fill");
+  const stepPill = stepLabelEl || document.querySelector(".step-pill");
   if (!ES || !root) {
     return;
   }
@@ -59,11 +64,14 @@
   let publishReview = null;
   let publishReviewApproved = false;
   const LIB_STORAGE_KEY = "pdc-show-library";
+  const EPISODE_SESSIONS_KEY = "pdc-episode-sessions";
   let showLibrary = { shows: [] };
   let activeShowId = null;
+  let activeEpisodeId = null;
   let activeBrandKit = null;
   let startingFromShowIdentity = false;
   let showIdentitySummary = null;
+  let lastView = "setup";
 
   function getActiveBrandKit() {
     if (activeBrandKit) {
@@ -167,6 +175,137 @@
   function setStep(label) {
     if (stepPill) {
       stepPill.textContent = label;
+    }
+    if (/^Show Library/i.test(label)) {
+      if (stepCountEl) {
+        stepCountEl.textContent = "Show home";
+      }
+      if (stepLabelEl) {
+        stepLabelEl.textContent = label.replace(/^Show Library ·\s*/, "") || "Show Library";
+      }
+      if (stepFillEl) {
+        stepFillEl.style.width = "0%";
+      }
+      if (stepIndicator) {
+        stepIndicator.classList.remove("workflow-step-indicator-active");
+      }
+      return;
+    }
+    if (!FLOW) {
+      return;
+    }
+    const indicator = FLOW.stepIndicatorForLabel(label);
+    if (stepCountEl) {
+      stepCountEl.textContent = indicator.countText;
+    }
+    if (stepLabelEl) {
+      stepLabelEl.textContent = indicator.labelText;
+    }
+    if (stepFillEl) {
+      stepFillEl.style.width = `${Math.round(indicator.progress * 100)}%`;
+    }
+    if (stepIndicator) {
+      stepIndicator.classList.toggle("workflow-step-indicator-active", Boolean(indicator.step));
+    }
+  }
+
+  function setWorkspaceStep(stageId) {
+    if (!FLOW) {
+      setStep("Episode workspace · Import to publish");
+      return;
+    }
+    const indicator = FLOW.stepIndicatorForWorkspaceStage(stageId);
+    if (stepCountEl) {
+      stepCountEl.textContent = indicator.countText;
+    }
+    if (stepLabelEl) {
+      stepLabelEl.textContent = indicator.labelText;
+    }
+    if (stepFillEl) {
+      stepFillEl.style.width = `${Math.round(indicator.progress * 100)}%`;
+    }
+    if (stepIndicator) {
+      stepIndicator.classList.add("workflow-step-indicator-active");
+    }
+  }
+
+  function loadEpisodeSessions() {
+    try {
+      const raw = typeof localStorage !== "undefined" ? localStorage.getItem(EPISODE_SESSIONS_KEY) : null;
+      if (!raw) {
+        return {};
+      }
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (err) {
+      return {};
+    }
+  }
+
+  function saveEpisodeSessions(sessions) {
+    if (typeof localStorage === "undefined") {
+      return;
+    }
+    try {
+      localStorage.setItem(EPISODE_SESSIONS_KEY, JSON.stringify(sessions || {}));
+    } catch (err) {
+      /* ignore quota errors */
+    }
+  }
+
+  function episodeSessionKey(showId, episodeId) {
+    return `${showId || "show"}:${episodeId || "episode"}`;
+  }
+
+  function buildEpisodeSessionSnapshot() {
+    return {
+      showId: activeShowId,
+      episodeId: activeEpisodeId,
+      setupDraft: state,
+      styleSelection: styleSelection,
+      appliedStyle: appliedStyle,
+      appliedAudioPolish: appliedAudioPolish,
+      contextApproved: contextApproved,
+      publishReviewApproved: publishReviewApproved,
+      activeTemplateId: activeTemplateId,
+      lastView: lastView,
+      setupComplete: ES.validateDraft(state).ok,
+      workspaceReached: lastView === "workspace" || Boolean(appliedStyle || appliedAudioPolish),
+      updatedAt: Date.now(),
+    };
+  }
+
+  function persistEpisodeSession() {
+    if (!activeShowId || !activeEpisodeId) {
+      return;
+    }
+    const sessions = loadEpisodeSessions();
+    sessions[episodeSessionKey(activeShowId, activeEpisodeId)] = buildEpisodeSessionSnapshot();
+    saveEpisodeSessions(sessions);
+    if (LIB) {
+      const status = buildEpisodeSessionSnapshot().workspaceReached
+        ? LIB.EPISODE_STATUS.IN_PROGRESS
+        : LIB.EPISODE_STATUS.DRAFT;
+      showLibrary = LIB.updateEpisode(showLibrary, activeShowId, activeEpisodeId, {
+        status: status,
+        updatedAt: Date.now(),
+      });
+      persistShowLibrary();
+    }
+  }
+
+  function applyEpisodeSessionSnapshot(snapshot) {
+    const data = snapshot || {};
+    state = data.setupDraft || ES.createDraft();
+    styleSelection = data.styleSelection || (STY ? STY.createSelection() : null);
+    appliedStyle = data.appliedStyle || null;
+    appliedAudioPolish = data.appliedAudioPolish || null;
+    contextApproved = Boolean(data.contextApproved);
+    publishReviewApproved = Boolean(data.publishReviewApproved);
+    activeTemplateId = data.activeTemplateId || null;
+    lastView = data.lastView || "setup";
+    if (SI && activeShowId && LIB) {
+      state = SI.sanitizeSetupDraft(state, LIB.getShow(showLibrary, activeShowId));
     }
   }
 
@@ -550,9 +689,22 @@
 
     const primaryCard = el("section", { class: "card show-primary-step-card" }, el("h2", {}, sections.primary.title));
     primaryCard.appendChild(el("p", { class: "hint" }, sections.primary.hint));
+    const primaryActions = el("div", { class: "show-primary-step-actions" });
     const primaryBtn = el("button", { class: "btn-primary", type: "button" }, sections.primary.actionLabel);
-    primaryBtn.addEventListener("click", () => startEpisodeFromShow(showId));
-    primaryCard.appendChild(el("div", { class: "show-primary-step-actions" }, primaryBtn));
+    primaryBtn.addEventListener("click", () => {
+      if (sections.primary.mode === "resume" && sections.primary.episodeId) {
+        resumeEpisodeFromShow(showId, sections.primary.episodeId);
+        return;
+      }
+      startEpisodeFromShow(showId);
+    });
+    primaryActions.appendChild(primaryBtn);
+    if (sections.primary.mode === "resume" && sections.canStartNewEpisode) {
+      const newEpisodeBtn = el("button", { class: "btn-secondary", type: "button" }, "Start new episode →");
+      newEpisodeBtn.addEventListener("click", () => startEpisodeFromShow(showId));
+      primaryActions.appendChild(newEpisodeBtn);
+    }
+    primaryCard.appendChild(primaryActions);
 
     const epListEl = el("div", { class: "show-episode-list" });
     if (!episodes.length) {
@@ -563,13 +715,19 @@
       episodes.forEach((ep) => {
         const statusLabel = LIB.episodeStatusLabel(ep.status);
         const statusClass = `ep-status ep-status--${ep.status}`;
+        const resumable = FLOW && FLOW.RESUMABLE_STATUSES.has(ep.status);
         const epCard = el(
           "div",
-          { class: "show-episode-card" },
+          { class: `show-episode-card${resumable ? " show-episode-card-resumable" : ""}` },
           el("span", { class: "show-episode-name" }, ep.name),
           el("span", { class: statusClass }, statusLabel),
           ep.downloadName ? el("span", { class: "show-episode-download" }, ep.downloadName) : null,
         );
+        if (resumable) {
+          const resumeBtn = el("button", { type: "button", class: "btn-primary btn-sm show-episode-resume-btn" }, "Resume →");
+          resumeBtn.addEventListener("click", () => resumeEpisodeFromShow(showId, ep.id));
+          epCard.appendChild(resumeBtn);
+        }
         epListEl.appendChild(epCard);
       });
     }
@@ -776,6 +934,8 @@
     publishReviewApproved = false;
     startingFromShowIdentity = false;
     showIdentitySummary = null;
+    activeEpisodeId = null;
+    lastView = "setup";
   }
 
   function applyEpisodeStart(start) {
@@ -830,9 +990,61 @@
     });
     showLibrary = LIB.addEpisode(showLibrary, showId, episode);
     persistShowLibrary();
+    activeEpisodeId = episode.id;
+    lastView = "setup";
+    persistEpisodeSession();
 
     setPageIntro("episode-setup");
     renderSetup();
+  }
+
+  function resumeEpisodeFromShow(showId, episodeId) {
+    if (!LIB || !SI) {
+      startBlankEpisode();
+      return;
+    }
+    const show = LIB.getShow(showLibrary, showId);
+    const episodes = LIB.listEpisodes(showLibrary, showId);
+    const episode = episodes.find((entry) => entry.id === episodeId);
+    if (!show || !episode) {
+      renderShowDetail(showId);
+      return;
+    }
+
+    activeShowId = showId;
+    activeEpisodeId = episodeId;
+    const sessions = loadEpisodeSessions();
+    const snapshot = sessions[episodeSessionKey(showId, episodeId)];
+    const start = SI.buildEpisodeStart(show, templateStore);
+
+    resetEpisodeSession();
+    activeShowId = showId;
+    activeEpisodeId = episodeId;
+    startingFromShowIdentity = true;
+    showIdentitySummary = start.identity;
+    activeBrandKit = start.brandKit;
+    activeTemplateId = start.templateId;
+    canvasDoc = start.canvasDoc;
+    styleSelection = start.styleSelection;
+
+    if (snapshot) {
+      applyEpisodeSessionSnapshot(snapshot);
+    } else {
+      state = start.setupDraft || ES.createDraft();
+      state = SI.sanitizeSetupDraft(state, show);
+    }
+    state.episodeName = episode.name;
+
+    const destination = FLOW ? FLOW.resumeDestination(snapshot || buildEpisodeSessionSnapshot()) : "setup";
+    setPageIntro("episode-setup");
+    if (destination === "workspace") {
+      lastView = "workspace";
+      renderWorkspace(ES.summarize(state));
+    } else {
+      lastView = "setup";
+      renderSetup();
+    }
+    persistEpisodeSession();
   }
 
   // ---- Setup view -------------------------------------------------------------
@@ -908,6 +1120,7 @@
   }
 
   function renderSetup() {
+    lastView = "setup";
     sanitizeSetupState();
     setPageIntro("episode-setup");
     root.innerHTML = "";
@@ -1099,12 +1312,16 @@
     clearSpeakerAutofillLeak();
     const backShow = document.getElementById("setup-back-show");
     if (backShow) {
-      backShow.addEventListener("click", () => renderShowDetail(activeShowId));
+      backShow.addEventListener("click", () => {
+        persistEpisodeSession();
+        renderShowDetail(activeShowId);
+      });
     }
 
     if (showErrors) {
       focusFirstError();
     }
+    persistEpisodeSession();
   }
 
   function renderSpeaker(speaker, index) {
@@ -1520,8 +1737,8 @@
 
   function renderWorkspace(summary) {
     workspaceSummaryCache = summary;
+    lastView = "workspace";
     root.innerHTML = "";
-    setStep("Episode workspace · Import to publish");
 
     const view = el("div", { class: "workspace guided-workspace" });
     const identityBanner = renderShowIdentityBanner();
@@ -1542,11 +1759,34 @@
       ensureMomentsBoard(summary);
       const ws = WS.buildWorkspace(summary, buildWorkspaceContext(summary));
       const wsSummary = WS.summarizeWorkspace(ws);
+      const currentStage = WS.getStage(ws, ws.currentStageId);
+      setWorkspaceStep(ws.currentStageId);
+
+      if (currentStage) {
+        const nextActionBtn = el(
+          "button",
+          { type: "button", class: "btn-primary workspace-next-action-btn" },
+          `${currentStage.actionLabel} →`,
+        );
+        nextActionBtn.addEventListener("click", function () {
+          navigateWorkspaceStage(currentStage.actionTarget, summary);
+        });
+        view.appendChild(
+          el(
+            "section",
+            { class: "card workspace-next-action" },
+            el("p", { class: "eyebrow workspace-next-action-eyebrow" }, "Your next step"),
+            el("h3", {}, currentStage.label),
+            el("p", { class: "hint workspace-next-action-summary" }, currentStage.summary),
+            el("div", { class: "workspace-next-action-cta" }, nextActionBtn),
+          ),
+        );
+      }
 
       view.appendChild(
         el(
           "section",
-          { class: "card workspace-progress" },
+          { class: "card workspace-progress workspace-progress-hero" },
           el("h3", {}, "Episode progress"),
           el("p", { class: "workspace-progress-line" }, wsSummary.progressLine),
           el("p", { class: "hint workspace-next-hint" }, wsSummary.workspaceLine),
@@ -1635,9 +1875,8 @@
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
+    persistEpisodeSession();
   }
-
-  // ---- Publish review (#37) -------------------------------------------------
 
   function renderPublishReview(summary) {
     if (!PR) {

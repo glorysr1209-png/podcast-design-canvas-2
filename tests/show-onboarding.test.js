@@ -39,13 +39,28 @@ test("showDetailSections keeps episode setup primary when a show already has epi
   let lib = library.createLibrary();
   const show = library.createShow("Agency Weekly");
   lib = library.addShow(lib, show);
-  const ep = library.createEpisode(show.id, "Episode 1", { status: library.EPISODE_STATUS.DRAFT });
+  const ep = library.createEpisode(show.id, "Episode 1", { status: library.EPISODE_STATUS.EXPORTED });
   lib = library.addEpisode(lib, show.id, ep);
   const stored = library.getShow(lib, show.id);
   const sections = onboarding.showDetailSections(stored);
 
   assert.strictEqual(sections.primary.id, "episode-setup");
   assert.strictEqual(sections.primary.actionLabel, "New episode →");
+});
+
+test("showDetailSections promotes draft resume when a draft episode exists", () => {
+  library._resetCounters();
+  let lib = library.createLibrary();
+  const show = library.createShow("Agency Weekly");
+  lib = library.addShow(lib, show);
+  const ep = library.createEpisode(show.id, "Episode 2 draft", { status: library.EPISODE_STATUS.DRAFT });
+  lib = library.addEpisode(lib, show.id, ep);
+  const stored = library.getShow(lib, show.id);
+  const sections = onboarding.showDetailSections(stored);
+
+  assert.strictEqual(sections.primary.mode, "resume");
+  assert.strictEqual(sections.primary.episodeId, ep.id);
+  assert.ok(/Resume draft episode/.test(sections.primary.actionLabel));
 });
 
 test("ACCEPTANCE: create-show path starts episode import with setup draft, not brand kit gate", () => {

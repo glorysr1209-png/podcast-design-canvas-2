@@ -12,7 +12,15 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <span>Podcast Design Canvas</span>
       </div>
-      <span class="step-pill">Step 1 of 8 · Set up episode</span>
+      <div class="workflow-step-indicator" aria-live="polite">
+        <div class="workflow-step-meta">
+          <span class="workflow-step-count">Step 1 of 8</span>
+          <span class="workflow-step-label step-pill">Set up episode</span>
+        </div>
+        <div class="workflow-step-track" aria-hidden="true">
+          <div class="workflow-step-fill" style="width: 12.5%"></div>
+        </div>
+      </div>
     </header>
 
     <main>
@@ -44,6 +52,7 @@
     <script src="app/show-brand-kit.js"></script>
     <script src="app/show-identity.js"></script>
     <script src="app/show-onboarding.js"></script>
+    <script src="app/episode-flow.js"></script>
     <script src="app/episode-setup.ui.js"></script>
   </body>
 </html>
