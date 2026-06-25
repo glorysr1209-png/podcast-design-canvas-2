@@ -1,6 +1,6 @@
 "use strict";
 
-// Browser wiring for the episode setup flow (#1) and the preset style step (#3). Renders
+// Browser wiring for the episode setup flow (#1) and the preset style step (#4). Renders
 // the setup wizard, the episode workspace, and the preset style selection + preview from
 // the shared PdcEpisodeSetup / PdcEpisodeStyle rules. Loaded as a classic script so the
 // app runs by opening index.html directly or via `npm run preview`.
@@ -19,6 +19,7 @@
   // Style step state, kept across navigation so choices survive Edit setup / Back.
   let styleSelection = STY ? STY.createSelection() : null;
   let appliedStyle = null;
+  let layoutCustomized = false;
 
   function setStep(label) {
     if (stepPill) {
@@ -232,7 +233,7 @@
       el(
         "div",
         { class: "actions" },
-        el("button", { type: "submit", class: "primary" }, "Continue to workspace →"),
+        el("button", { type: "submit", class: "primary" }, "Continue to style →"),
       ),
     );
 
@@ -358,7 +359,12 @@
     errors = result.errors;
     showErrors = true;
     if (result.ok) {
-      renderWorkspace(ES.summarize(state));
+      const summary = ES.summarize(state);
+      if (STY && !appliedStyle) {
+        renderStyle(summary);
+      } else {
+        renderWorkspace(summary);
+      }
     } else {
       renderSetup();
     }
@@ -513,16 +519,19 @@
     view.scrollIntoView({ block: "start" });
   }
 
-  // ---- Preset style selection + preview (#3) ----------------------------------
+  // ---- Preset style selection + preview (#4) ----------------------------------
 
   // A live preview built from the real assigned speakers. `compact` renders the smaller
   // version shown on the workspace once a style is applied.
   function renderPreview(summary, selection, compact) {
     const preset = STY.getPreset(selection && selection.presetId);
+    const pacing = STY.getPacing(selection && selection.pacing);
     const frames = STY.buildPreviewFrames(summary.speakers, selection, summary.speakerCount);
     const layoutId = STY.resolveLayout(selection, summary.speakerCount);
 
-    const stage = el("div", { class: `preview-stage stage-${layoutId}${compact ? " compact" : ""}` });
+    const stage = el("div", {
+      class: `preview-stage stage-${layoutId} pacing-${pacing.id}${compact ? " compact" : ""}`,
+    });
     stage.style.background = preset.background;
     stage.style.color = preset.textColor;
 
@@ -555,7 +564,7 @@
       const foot = el(
         "p",
         { class: "preview-foot" },
-        `${preset.captionStyle} · ${STY.getLayout(layoutId).label}`,
+        `${pacing.label} pacing · ${preset.captionStyle} · ${STY.getLayout(layoutId).label}`,
       );
       const container = el("div", {}, stage, foot);
       return container;
@@ -608,7 +617,7 @@
         el("span", { class: "preset-tagline" }, preset.tagline),
       );
       card.addEventListener("click", () => {
-        styleSelection.presetId = preset.id;
+        styleSelection = STY.applyPresetToSelection(styleSelection, preset.id, layoutCustomized);
         renderStyle(summary);
       });
       presetGrid.appendChild(card);
@@ -624,6 +633,7 @@
     });
     layoutSelect.addEventListener("change", (e) => {
       styleSelection.layout = e.target.value;
+      layoutCustomized = styleSelection.layout !== "auto";
       renderStyle(summary);
     });
     controls.appendChild(field("Layout", layoutSelect, null, "Auto matches the number of speakers you set up."));

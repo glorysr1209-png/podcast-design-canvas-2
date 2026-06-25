@@ -1,6 +1,6 @@
 "use strict";
 
-// Preset visual styles + preview model for Podcast Design Canvas (#3).
+// Preset visual styles + preview model for Podcast Design Canvas (#4).
 //
 // This is the single source of truth for the preset-first look step that follows episode
 // setup: a small set of clearly different show styles, adjustable layout and pacing, and
@@ -89,6 +89,18 @@
     return { presetId: STYLE_PRESETS[0].id, layout: "auto", pacing: "balanced" };
   }
 
+  // When a creator picks a preset, adopt its recommended layout unless they already
+  // chose a specific arrangement. Keeps each preset feeling distinct in the preview.
+  function applyPresetToSelection(selection, presetId, keepLayout) {
+    const next = Object.assign({}, selection || createSelection());
+    const preset = getPreset(presetId);
+    next.presetId = preset.id;
+    if (!keepLayout) {
+      next.layout = preset.defaultLayout;
+    }
+    return next;
+  }
+
   // Resolve "auto" into a concrete arrangement from the speaker count: one → spotlight,
   // two → side by side, three or more → grid. This is the preset-first promise — a good
   // default appears without the creator touching a blank canvas.
@@ -156,6 +168,7 @@
     getLayout,
     getPacing,
     createSelection,
+    applyPresetToSelection,
     resolveLayout,
     buildPreviewFrames,
     summarizeStyle,

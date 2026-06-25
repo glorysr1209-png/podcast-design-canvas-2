@@ -1,6 +1,6 @@
 "use strict";
 
-// Preset style + preview smoke suite for Podcast Design Canvas (#3).
+// Preset style + preview smoke suite for Podcast Design Canvas (#4).
 // Guards the documented acceptance: at least three clearly different presets, adjustable
 // layout and pacing, and a preview built from the assigned Host/Guest speaker buckets.
 // Run with: `node tests/episode-style.test.js`.
@@ -90,6 +90,16 @@ test("summarizeStyle reflects the chosen preset, layout, and pacing", () => {
   assert.strictEqual(summary.captionStyle, "Minimal name tag");
 });
 
+test("applyPresetToSelection adopts the preset layout until the creator customizes it", () => {
+  const selection = style.createSelection();
+  const next = style.applyPresetToSelection(selection, "split-stage", false);
+  assert.strictEqual(next.presetId, "split-stage");
+  assert.strictEqual(next.layout, "split");
+  const kept = style.applyPresetToSelection(selection, "panel-grid", true);
+  assert.strictEqual(kept.layout, "auto");
+  assert.strictEqual(kept.presetId, "panel-grid");
+});
+
 test("summarizeStyle resolves an auto layout from the speaker count", () => {
   const summary = style.summarizeStyle(style.createSelection(), 3);
   assert.strictEqual(summary.resolvedFromAuto, true);
@@ -97,7 +107,7 @@ test("summarizeStyle resolves an auto layout from the speaker count", () => {
 });
 
 // End-to-end: a completed setup feeds the style step, and the preview + summary reflect
-// the real assigned speakers — the documented runnable check for issue #3.
+// the real assigned speakers — the documented runnable check for issue #4.
 test("ACCEPTANCE: pick a preset and preview the real episode speakers", () => {
   const draft = setup.createDraft();
   draft.episodeName = "Founders Unfiltered #7";
@@ -111,7 +121,8 @@ test("ACCEPTANCE: pick a preset and preview the real episode speakers", () => {
 
   const episode = setup.summarize(draft);
   const selection = style.createSelection();
-  selection.presetId = "split-stage"; // change away from the default preset
+  selection.presetId = "split-stage";
+  selection.layout = "split";
 
   const frames = style.buildPreviewFrames(episode.speakers, selection, episode.speakerCount);
   assert.deepStrictEqual(frames.map((f) => f.role), ["Host", "Guest 1", "Guest 2"]);
@@ -119,7 +130,7 @@ test("ACCEPTANCE: pick a preset and preview the real episode speakers", () => {
 
   const applied = style.summarizeStyle(selection, episode.speakerCount);
   assert.strictEqual(applied.presetName, "Split Stage");
-  assert.strictEqual(applied.layoutId, "grid"); // auto, 3 speakers
+  assert.strictEqual(applied.layoutId, "split");
 });
 
 console.log(`\nepisode style: ${passed} assertions passed`);
