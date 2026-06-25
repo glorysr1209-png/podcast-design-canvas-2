@@ -1,11 +1,14 @@
 "use strict";
 
-// Browser wiring for the episode setup flow (#1). Renders the setup wizard and the
-// episode workspace summary from the shared PdcEpisodeSetup rules. Loaded as a classic
-// script so the app runs by opening index.html directly or via `npm run preview`.
+// Browser wiring for the episode setup flow (#1) and the preset style step (#3). Renders
+// the setup wizard, the episode workspace, and the preset style selection + preview from
+// the shared PdcEpisodeSetup / PdcEpisodeStyle rules. Loaded as a classic script so the
+// app runs by opening index.html directly or via `npm run preview`.
 (function () {
   const ES = window.PdcEpisodeSetup;
+  const STY = window.PdcEpisodeStyle;
   const root = document.getElementById("app");
+  const stepPill = document.querySelector(".step-pill");
   if (!ES || !root) {
     return;
   }
@@ -13,6 +16,15 @@
   let state = ES.createDraft();
   let errors = {};
   let showErrors = false;
+  // Style step state, kept across navigation so choices survive Edit setup / Back.
+  let styleSelection = STY ? STY.createSelection() : null;
+  let appliedStyle = null;
+
+  function setStep(label) {
+    if (stepPill) {
+      stepPill.textContent = label;
+    }
+  }
 
   // Tiny DOM helper: el("div", {class:"x", onclick:fn}, child, child...).
   function el(tag, attrs) {
@@ -100,6 +112,7 @@
 
   function renderSetup() {
     root.innerHTML = "";
+    setStep("Step 1 of 6 · Set up episode");
     state.sourceMode = ES.normalizeMode(state.sourceMode);
 
     const form = el("form", { class: "setup", novalidate: true });
@@ -370,6 +383,7 @@
 
   function renderWorkspace(summary) {
     root.innerHTML = "";
+    setStep("Step 1 of 6 · Episode workspace");
 
     const view = el("div", { class: "workspace" });
     view.appendChild(
@@ -433,15 +447,56 @@
     });
     view.appendChild(sources);
 
-    // Next step (honest placeholder — the next workflow is not built yet)
+    // Selected style (shown once a preset has been applied to the episode)
+    if (STY && appliedStyle) {
+      const styleCard = el(
+        "section",
+        { class: "card selected-style" },
+        el("h3", {}, "Selected style"),
+        el(
+          "div",
+          { class: "selected-style-body" },
+          renderPreview(summary, styleSelection, true),
+          el(
+            "div",
+            { class: "selected-style-meta" },
+            el("p", { class: "selected-style-name" }, appliedStyle.presetName),
+            el("p", { class: "hint" }, appliedStyle.tagline),
+            el(
+              "p",
+              { class: "selected-style-facts" },
+              `Layout: ${appliedStyle.layoutLabel} · Pacing: ${appliedStyle.pacingLabel} · Captions: ${appliedStyle.captionStyle}`,
+            ),
+          ),
+        ),
+      );
+      view.appendChild(styleCard);
+    }
+
+    // Next step — choose or change the visual style
+    const styleAvailable = Boolean(STY);
+    const styleButton = el(
+      "button",
+      { type: "button", class: "primary", disabled: styleAvailable ? null : true },
+      appliedStyle ? "Change style →" : "Choose a style →",
+    );
+    if (styleAvailable) {
+      styleButton.addEventListener("click", () => renderStyle(summary));
+    }
     view.appendChild(
       el(
         "section",
         { class: "card next-step" },
-        el("h3", {}, "Ready for the next step"),
-        el("p", {}, "Your sources, speaker roles, and context are saved. Style selection and editing come next."),
+        el("h3", {}, appliedStyle ? "Style applied" : "Ready for the next step"),
+        el(
+          "p",
+          {},
+          appliedStyle
+            ? "Your style is set. Detailed editing and export come next."
+            : "Your sources, speaker roles, and context are saved. Pick a visual style next.",
+        ),
         el("div", { class: "actions" },
-          el("button", { type: "button", class: "primary", disabled: true }, "Choose a style → (coming next)"),
+          styleButton,
           (function () {
             const back = el("button", { type: "button", class: "ghost" }, "← Edit setup");
             back.addEventListener("click", () => {
@@ -453,6 +508,161 @@
         ),
       ),
     );
+
+    root.appendChild(view);
+    view.scrollIntoView({ block: "start" });
+  }
+
+  // ---- Preset style selection + preview (#3) ----------------------------------
+
+  // A live preview built from the real assigned speakers. `compact` renders the smaller
+  // version shown on the workspace once a style is applied.
+  function renderPreview(summary, selection, compact) {
+    const preset = STY.getPreset(selection && selection.presetId);
+    const frames = STY.buildPreviewFrames(summary.speakers, selection, summary.speakerCount);
+    const layoutId = STY.resolveLayout(selection, summary.speakerCount);
+
+    const stage = el("div", { class: `preview-stage stage-${layoutId}${compact ? " compact" : ""}` });
+    stage.style.background = preset.background;
+    stage.style.color = preset.textColor;
+
+    const frameWrap = el("div", { class: "preview-frames" });
+    frames.forEach((frame) => {
+      const frameEl = el(
+        "div",
+        { class: `preview-frame${frame.active ? " active" : ""}` },
+        el("span", { class: "preview-role" }, frame.role),
+        el("span", { class: "preview-name" }, frame.name),
+      );
+      frameEl.style.borderColor = preset.accent;
+      if (frame.active) {
+        frameEl.style.boxShadow = `0 0 0 2px ${preset.accent}`;
+      }
+      frameWrap.appendChild(frameEl);
+    });
+    stage.appendChild(frameWrap);
+
+    // Sample caption strip so the caption treatment is visible in the preview.
+    const caption = el(
+      "div",
+      { class: "preview-caption" },
+      el("span", { class: "preview-caption-text" }, "Sample caption — this is how on-screen text will look."),
+    );
+    caption.style.background = preset.accent;
+    stage.appendChild(caption);
+
+    if (!compact) {
+      const foot = el(
+        "p",
+        { class: "preview-foot" },
+        `${preset.captionStyle} · ${STY.getLayout(layoutId).label}`,
+      );
+      const container = el("div", {}, stage, foot);
+      return container;
+    }
+    return stage;
+  }
+
+  function renderStyle(summary) {
+    root.innerHTML = "";
+    setStep("Step 2 of 6 · Choose a style");
+    if (!styleSelection) {
+      styleSelection = STY.createSelection();
+    }
+
+    const view = el("div", { class: "style-step" });
+    view.appendChild(
+      el(
+        "div",
+        { class: "workspace-head" },
+        el("p", { class: "eyebrow" }, "Choose a style"),
+        el("h2", {}, `Pick a look for ${summary.episodeName}`),
+        el("p", { class: "hint" }, "Start from a preset, then fine-tune layout and pacing. The preview uses your real speakers."),
+      ),
+    );
+
+    const layoutGrid = el("div", { class: "style-layout" });
+
+    // Controls column
+    const controls = el("section", { class: "card" }, el("h3", {}, "Style presets"));
+    const presetGrid = el("div", { class: "preset-grid" });
+    STY.STYLE_PRESETS.forEach((preset) => {
+      const selected = styleSelection.presetId === preset.id;
+      const card = el(
+        "button",
+        {
+          type: "button",
+          class: `preset-card${selected ? " selected" : ""}`,
+          "aria-pressed": selected ? "true" : "false",
+        },
+        (function () {
+          const swatch = el("span", { class: "preset-swatch" });
+          swatch.style.background = preset.background;
+          swatch.style.borderColor = preset.accent;
+          const dot = el("span", { class: "preset-swatch-dot" });
+          dot.style.background = preset.accent;
+          swatch.appendChild(dot);
+          return swatch;
+        })(),
+        el("span", { class: "preset-name" }, preset.name),
+        el("span", { class: "preset-tagline" }, preset.tagline),
+      );
+      card.addEventListener("click", () => {
+        styleSelection.presetId = preset.id;
+        renderStyle(summary);
+      });
+      presetGrid.appendChild(card);
+    });
+    controls.appendChild(presetGrid);
+
+    // Layout control
+    const layoutSelect = el("select", { id: "style-layout" });
+    STY.LAYOUTS.forEach((layout) => {
+      layoutSelect.appendChild(
+        el("option", { value: layout.id, selected: styleSelection.layout === layout.id ? true : null }, layout.label),
+      );
+    });
+    layoutSelect.addEventListener("change", (e) => {
+      styleSelection.layout = e.target.value;
+      renderStyle(summary);
+    });
+    controls.appendChild(field("Layout", layoutSelect, null, "Auto matches the number of speakers you set up."));
+
+    // Pacing control
+    const pacingSelect = el("select", { id: "style-pacing" });
+    STY.PACING.forEach((pacing) => {
+      pacingSelect.appendChild(
+        el("option", { value: pacing.id, selected: styleSelection.pacing === pacing.id ? true : null }, pacing.label),
+      );
+    });
+    pacingSelect.addEventListener("change", (e) => {
+      styleSelection.pacing = e.target.value;
+      renderStyle(summary);
+    });
+    controls.appendChild(field("Pacing", pacingSelect, null, STY.getPacing(styleSelection.pacing).note));
+
+    layoutGrid.appendChild(controls);
+
+    // Preview column
+    const previewCard = el(
+      "section",
+      { class: "card preview-card" },
+      el("h3", {}, "Preview"),
+      renderPreview(summary, styleSelection, false),
+    );
+    layoutGrid.appendChild(previewCard);
+
+    view.appendChild(layoutGrid);
+
+    // Actions
+    const applyButton = el("button", { type: "button", class: "primary" }, "Apply style & continue →");
+    applyButton.addEventListener("click", () => {
+      appliedStyle = STY.summarizeStyle(styleSelection, summary.speakerCount);
+      renderWorkspace(summary);
+    });
+    const back = el("button", { type: "button", class: "ghost" }, "← Back to workspace");
+    back.addEventListener("click", () => renderWorkspace(summary));
+    view.appendChild(el("div", { class: "actions" }, applyButton, back));
 
     root.appendChild(view);
     view.scrollIntoView({ block: "start" });
