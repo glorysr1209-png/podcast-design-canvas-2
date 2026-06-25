@@ -66,6 +66,21 @@
     };
   }
 
+  // Reuse a saved layout on a (possibly different) episode: keep the show identity —
+  // preset, layout, pacing, background, title, and layer stack — but rebuild the speaker
+  // frames from the current episode's assigned speakers. This is the reusable-template
+  // promise: a repeat creator keeps their format while each episode adapts to its cast.
+  function applyToEpisode(doc, episodeSummary, styleSelection) {
+    const STY = styleApi();
+    const next = cloneDoc(doc || createFromStyle({}, {}, {}));
+    const episode = episodeSummary || {};
+    const selection = styleSelection || { layout: next.layoutId };
+    next.speakerFrames = STY
+      ? STY.buildPreviewFrames(episode.speakers, selection, episode.speakerCount)
+      : (next.speakerFrames || []);
+    return next;
+  }
+
   function updateElement(doc, key, value) {
     const next = cloneDoc(doc || createFromStyle({}, {}, {}));
     if (key === "titleText" || key === "captionText" || key === "background" || key === "accent") {
@@ -113,6 +128,7 @@
 
   const api = {
     createFromStyle,
+    applyToEpisode,
     updateElement,
     updateLayers,
     summarize,

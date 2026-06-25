@@ -742,10 +742,21 @@
     view.scrollIntoView({ block: "start" });
   }
 
-  function renderSavedTemplatesCard(saved, summary) {
-    const card = el("section", { class: "card template-picker" }, el("h3", {}, "Saved show templates"));
+  function renderSavedTemplatesCard(saved, summary, context) {
+    const inStyleStep = context === "style";
+    const card = el(
+      "section",
+      { class: "card template-picker" },
+      el("h3", {}, inStyleStep ? "Reuse a saved show template" : "Saved show templates"),
+    );
     card.appendChild(
-      el("p", { class: "hint" }, "Reuse a layout you designed for a previous episode."),
+      el(
+        "p",
+        { class: "hint" },
+        inStyleStep
+          ? "Start from a layout you saved before — it keeps the look and adapts to this episode's speakers."
+          : "Reuse a layout you designed for a previous episode.",
+      ),
     );
     const list = el("div", { class: "template-list" });
     saved.forEach((item) => {
@@ -759,9 +770,13 @@
           `${item.presetName || "Custom"} · ${item.titleText || "Untitled"}`,
         ),
       );
-      const useButton = el("button", { type: "button", class: "ghost" }, "Use template");
+      const useButton = el(
+        "button",
+        { type: "button", class: activeTemplateId === item.id ? "primary" : "ghost" },
+        activeTemplateId === item.id ? "Applied" : inStyleStep ? "Apply to this episode" : "Use template",
+      );
       useButton.addEventListener("click", () => {
-        applySavedTemplate(item.id, summary);
+        applySavedTemplate(item.id, summary, context);
       });
       row.appendChild(useButton);
       list.appendChild(row);
@@ -770,7 +785,7 @@
     return card;
   }
 
-  function applySavedTemplate(templateId, summary) {
+  function applySavedTemplate(templateId, summary, context) {
     if (!TM) {
       return;
     }
@@ -785,9 +800,16 @@
       styleSelection.presetId = canvasDoc.presetId || styleSelection.presetId;
       styleSelection.layout = canvasDoc.layoutId || styleSelection.layout;
       styleSelection.pacing = canvasDoc.pacingId || styleSelection.pacing;
+      layoutCustomized = Boolean(styleSelection.layout) && styleSelection.layout !== "auto";
       appliedStyle = STY.summarizeStyle(styleSelection, summary ? summary.speakerCount : 3);
     }
-    if (summary) {
+    // Carry the saved show identity forward while adapting to THIS episode's speakers.
+    if (canvasDoc && CE) {
+      canvasDoc = CE.applyToEpisode(canvasDoc, summary, styleSelection);
+    }
+    if (context === "style" && summary) {
+      renderStyle(summary);
+    } else if (summary) {
       renderWorkspace(summary);
     } else {
       renderSetup();
@@ -1570,6 +1592,14 @@
     layoutGrid.appendChild(previewCard);
 
     view.appendChild(layoutGrid);
+
+    // Reuse a saved show template directly from the style step.
+    if (TM) {
+      const saved = TM.listTemplates(templateStore);
+      if (saved.length) {
+        view.appendChild(renderSavedTemplatesCard(saved, summary, "style"));
+      }
+    }
 
     // Actions
     const applyButton = el("button", { type: "button", class: "primary" }, "Apply style & continue →");
