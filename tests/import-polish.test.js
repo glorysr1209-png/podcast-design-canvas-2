@@ -53,6 +53,7 @@ test("import scan polish separates sections and groups speaker fields (#86)", ()
   assert.ok(styles.includes(".setup-section-head"));
   assert.ok(styles.includes(".speaker-group"));
   assert.ok(styles.includes(".setup-role-chip"));
+  assert.ok(styles.includes(".speaker-bucket-guest-1"));
 });
 
 console.log(`\nimport polish: ${passed} assertions passed`);

@@ -2064,6 +2064,98 @@ button.ghost:hover,
   border-radius: 999px;
   background: rgba(108, 76, 255, 0.1);
   color: var(--brand);
+  border: 1px solid transparent;
+}
+
+/* ---- Speaker bucket cues (#92) ---- */
+.speaker-card[class*="speaker-bucket-"] {
+  border-left-width: 4px;
+  border-left-style: solid;
+}
+
+.speaker-bucket-host,
+.setup-role-chip.speaker-bucket-host {
+  --speaker-bucket-accent: #6c4cff;
+  --speaker-bucket-bg: rgba(108, 76, 255, 0.08);
+}
+
+.speaker-bucket-co-host,
+.setup-role-chip.speaker-bucket-co-host {
+  --speaker-bucket-accent: #3b6cff;
+  --speaker-bucket-bg: rgba(59, 108, 255, 0.08);
+}
+
+.speaker-bucket-guest-1,
+.setup-role-chip.speaker-bucket-guest-1 {
+  --speaker-bucket-accent: #0f9d8b;
+  --speaker-bucket-bg: rgba(15, 157, 139, 0.1);
+}
+
+.speaker-bucket-guest-2,
+.setup-role-chip.speaker-bucket-guest-2 {
+  --speaker-bucket-accent: #d97706;
+  --speaker-bucket-bg: rgba(217, 119, 6, 0.1);
+}
+
+.speaker-bucket-guest-3,
+.setup-role-chip.speaker-bucket-guest-3 {
+  --speaker-bucket-accent: #db5fa8;
+  --speaker-bucket-bg: rgba(219, 95, 168, 0.1);
+}
+
+.speaker-bucket-guest-4,
+.setup-role-chip.speaker-bucket-guest-4 {
+  --speaker-bucket-accent: #64748b;
+  --speaker-bucket-bg: rgba(100, 116, 139, 0.1);
+}
+
+.speaker-bucket-unassigned,
+.setup-role-chip.speaker-bucket-unassigned {
+  --speaker-bucket-accent: var(--line);
+  --speaker-bucket-bg: #f6f6fa;
+}
+
+.speaker-card.speaker-bucket-host,
+.speaker-card.speaker-bucket-co-host,
+.speaker-card.speaker-bucket-guest-1,
+.speaker-card.speaker-bucket-guest-2,
+.speaker-card.speaker-bucket-guest-3,
+.speaker-card.speaker-bucket-guest-4,
+.speaker-card.speaker-bucket-unassigned {
+  border-left-color: var(--speaker-bucket-accent);
+  background: color-mix(in srgb, var(--speaker-bucket-accent) 5%, #fcfcff);
+}
+
+.speaker-card .speaker-head {
+  border-bottom-color: color-mix(in srgb, var(--speaker-bucket-accent) 18%, var(--line));
+}
+
+.speaker-role-badge.speaker-bucket-host,
+.speaker-role-badge.speaker-bucket-co-host,
+.speaker-role-badge.speaker-bucket-guest-1,
+.speaker-role-badge.speaker-bucket-guest-2,
+.speaker-role-badge.speaker-bucket-guest-3,
+.speaker-role-badge.speaker-bucket-guest-4,
+.speaker-role-badge.speaker-bucket-unassigned {
+  background: var(--speaker-bucket-bg);
+  color: var(--speaker-bucket-accent);
+  border-color: color-mix(in srgb, var(--speaker-bucket-accent) 24%, transparent);
+}
+
+.setup-role-chip.speaker-bucket-host,
+.setup-role-chip.speaker-bucket-co-host,
+.setup-role-chip.speaker-bucket-guest-1,
+.setup-role-chip.speaker-bucket-guest-2,
+.setup-role-chip.speaker-bucket-guest-3,
+.setup-role-chip.speaker-bucket-guest-4,
+.setup-role-chip.speaker-bucket-unassigned {
+  background: var(--speaker-bucket-bg);
+  color: var(--speaker-bucket-accent);
+  border-color: color-mix(in srgb, var(--speaker-bucket-accent) 24%, var(--line));
+}
+
+.speaker-card .speaker-tag {
+  color: var(--speaker-bucket-accent, var(--brand));
 }
 
 .speaker-group {

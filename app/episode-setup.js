@@ -69,6 +69,15 @@
     };
   }
 
+  function speakerBucketCueClass(role) {
+    const text = trim(role);
+    if (!text) {
+      return "speaker-bucket-unassigned";
+    }
+    const slug = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    return `speaker-bucket-${slug}`;
+  }
+
   // A fresh episode draft. Seeded with Host / Guest 1 / Guest 2 so the creator starts
   // from sensible defaults instead of a blank list, matching the preset-first taste rule.
   function createDraft() {
@@ -210,6 +219,7 @@
     normalizeMode,
     socialEntries,
     sourceLabel,
+    speakerBucketCueClass,
     summarize,
     validateDraft,
   };

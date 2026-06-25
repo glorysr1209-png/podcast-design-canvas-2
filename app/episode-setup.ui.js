@@ -410,10 +410,36 @@
     const overview = el("div", { class: "setup-role-overview", "aria-label": "Current speaker role assignments" });
     state.speakers.forEach((speaker, index) => {
       overview.appendChild(
-        el("span", { class: "setup-role-chip", "data-role-chip": String(index) }, speaker.role || `Source ${index + 1}`),
+        el(
+          "span",
+          {
+            class: `setup-role-chip ${ES.speakerBucketCueClass(speaker.role)}`,
+            "data-role-chip": String(index),
+          },
+          speaker.role || `Source ${index + 1}`,
+        ),
       );
     });
     return overview;
+  }
+
+  function applySpeakerBucketCue(node, role) {
+    if (!node) {
+      return;
+    }
+    const nextClass = ES.speakerBucketCueClass(role);
+    node.classList.forEach((className) => {
+      if (className.indexOf("speaker-bucket-") === 0) {
+        node.classList.remove(className);
+      }
+    });
+    node.classList.add(nextClass);
+  }
+
+  function syncSpeakerBucketCues(role, card, roleBadge, chip) {
+    applySpeakerBucketCue(card, role);
+    applySpeakerBucketCue(roleBadge, role);
+    applySpeakerBucketCue(chip, role);
   }
 
   function nextRole() {
@@ -1325,8 +1351,9 @@
   }
 
   function renderSpeaker(speaker, index) {
-    const card = el("article", { class: "speaker speaker-card" });
-    const roleBadge = el("span", { class: "speaker-role-badge" }, speaker.role || "Unassigned");
+    const bucketClass = ES.speakerBucketCueClass(speaker.role);
+    const card = el("article", { class: `speaker speaker-card ${bucketClass}` });
+    const roleBadge = el("span", { class: `speaker-role-badge ${bucketClass}` }, speaker.role || "Unassigned");
     const header = el(
       "div",
       { class: "speaker-head" },
@@ -1388,6 +1415,7 @@
       if (chip) {
         chip.textContent = speaker.role;
       }
+      syncSpeakerBucketCues(speaker.role, card, roleBadge, chip);
     });
     core.appendChild(field("Role", roleSelect, `speaker:${index}:role`));
 
