@@ -71,6 +71,30 @@ test("createCorrectionReview populates lines from social context and visual mome
   assert.ok(review.lines.some((line) => line.kind === "transcript"));
 });
 
+test("createCorrectionReview keeps already-correct speaker names exact", () => {
+  const episode = setup.summarize(draftWithSocial());
+  const contextReview = context.approveReview(context.createReview(episode));
+  let board = moments.createBoard(episode);
+  board = moments.addMoment(board, "caption", {
+    time: "0:20",
+    text: "Welcome Sam Rivera",
+    speakerRole: "Host",
+    speakerName: "Sam Rivera",
+  });
+
+  const review = correction.createCorrectionReview(episode, {
+    contextReview: contextReview,
+    momentsBoard: board,
+  });
+  const captionLine = review.lines.find((line) => line.kind === "caption");
+  const transcriptLine = review.lines.find((line) => line.kind === "transcript" && line.speakerRole === "Host");
+
+  assert.strictEqual(captionLine.text, "Welcome Sam Rivera");
+  assert.ok(!captionLine.text.includes("Riveraa"));
+  assert.ok(transcriptLine.text.includes("Sam Rivera"));
+  assert.ok(!transcriptLine.text.includes("Riveraa"));
+});
+
 test("updateSpeaker and updateLine let creators edit labels and key text", () => {
   const episode = setup.summarize(draftWithSocial());
   let review = correction.createCorrectionReview(episode, { momentsBoard: buildBoard(episode) });
@@ -162,7 +186,8 @@ test("ACCEPTANCE: edit transcript lines, apply corrections, and see updates acro
   const caption = board.moments.find((moment) => moment.type === "caption");
   assert.ok(caption.text.includes("Sam R. Rivera"));
   assert.ok(applied.canvasDoc.captionText.includes("Sam R. Rivera"));
-  assert.ok(applied.publishPackage.description.includes("Sam R. Rivera"));
+  assert.ok(!applied.publishPackage.description.includes("Riveraa"));
+  assert.ok(applied.publishPackage.speakerCredits.some((credit) => credit.name === "Sam R. Rivera"));
   assert.strictEqual(applied.speakers[0].name, "Sam R. Rivera");
 });
 

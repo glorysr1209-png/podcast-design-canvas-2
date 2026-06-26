@@ -110,6 +110,39 @@ test("applyReviewToMoments fixes spellings and enriches captions, titles, and ca
   assert.ok(callout.text.includes("Rivera Media"));
 });
 
+test("approved hints do not corrupt already-correct speaker names", () => {
+  const episode = setup.summarize(draftWithSocial());
+  const review = context.approveReview(context.createReview(episode));
+
+  assert.strictEqual(
+    context.applyHintsToText("Thanks Sam Rivera", review, "Host", "Sam Rivera"),
+    "Thanks Sam Rivera",
+  );
+  assert.strictEqual(
+    context.applyHintsToText("Thanks Sam River", review, "Host", "Sam Rivera"),
+    "Thanks Sam Rivera",
+  );
+
+  let board = moments.createBoard(episode);
+  board = moments.addMoment(board, "caption", {
+    time: "0:30",
+    text: "Welcome Sam Rivera",
+    speakerRole: "Host",
+    speakerName: "Sam Rivera",
+  });
+  board = context.applyReviewToMoments(board, review);
+  assert.strictEqual(board.moments[0].text, "Welcome Sam Rivera");
+
+  const canvas = context.applyReviewToCanvas({
+    titleText: "Sam Rivera on building in public",
+    captionText: "Welcome Sam Rivera",
+    speakerFrames: [{ role: "Host", name: "Sam Rivera" }],
+  }, review);
+  assert.strictEqual(canvas.titleText, "Sam Rivera on building in public");
+  assert.strictEqual(canvas.captionText, "Welcome Sam Rivera");
+  assert.strictEqual(canvas.speakerFrames[0].name, "Sam Rivera");
+});
+
 test("summarizeReview rolls approved context into an export-friendly line", () => {
   let review = context.approveReview(context.createReview(setup.summarize(draftWithSocial())));
   review = context.updateSpeaker(review, 0, { topics: "founders, SaaS" });

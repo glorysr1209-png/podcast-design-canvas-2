@@ -203,6 +203,18 @@
     return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
+  function replaceWholeHint(text, hint, replacement) {
+    const source = trim(hint);
+    const target = trim(replacement);
+    if (!source || !target) {
+      return text;
+    }
+    const pattern = new RegExp(`(^|[^A-Za-z0-9])(${escapeRegExp(source)})(?=$|[^A-Za-z0-9])`, "gi");
+    return text.replace(pattern, function (_match, prefix) {
+      return `${prefix}${target}`;
+    });
+  }
+
   function applyHintsToText(text, review, speakerRole, speakerName) {
     const original = trim(text);
     if (!original || !review || !review.approved) {
@@ -217,7 +229,7 @@
       if (!hint || hint.toLowerCase() === ctx.displayName.toLowerCase()) {
         return;
       }
-      next = next.replace(new RegExp(escapeRegExp(hint), "gi"), ctx.displayName);
+      next = replaceWholeHint(next, hint, ctx.displayName);
     });
     return next;
   }

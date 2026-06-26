@@ -18,6 +18,18 @@
     return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
+  function replaceWholeHint(text, hint, replacement) {
+    const source = trim(hint);
+    const target = trim(replacement);
+    if (!source || !target) {
+      return text;
+    }
+    const pattern = new RegExp(`(^|[^A-Za-z0-9])(${escapeRegExp(source)})(?=$|[^A-Za-z0-9])`, "gi");
+    return text.replace(pattern, function (_match, prefix) {
+      return `${prefix}${target}`;
+    });
+  }
+
   function socialContextApi() {
     if (typeof module !== "undefined" && module.exports && typeof require === "function") {
       return require("./social-context.js");
@@ -105,7 +117,7 @@
       if (!item.from || !item.to) {
         return;
       }
-      next = next.replace(new RegExp(escapeRegExp(item.from), "gi"), item.to);
+      next = replaceWholeHint(next, item.from, item.to);
     });
     return next;
   }
