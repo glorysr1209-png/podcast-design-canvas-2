@@ -1767,7 +1767,13 @@
     activeEpisodeId = episodeId;
     const sessions = loadEpisodeSessions();
     const snapshot = sessions[episodeSessionKey(showId, episodeId)];
-    const start = SI.buildEpisodeStart(show, templateStore);
+    // Re-deriving the show identity must not replace a cast the creator already
+    // assigned to this episode (#36) — carry the saved cast into the rebuilt start.
+    const start = SI.buildEpisodeStart(
+      show,
+      templateStore,
+      snapshot && snapshot.setupDraft ? { currentDraft: snapshot.setupDraft } : null,
+    );
 
     resetEpisodeSession();
     activeShowId = showId;

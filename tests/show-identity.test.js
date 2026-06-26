@@ -146,4 +146,46 @@ test("ACCEPTANCE: choose a saved show and start a new episode from its establish
   assert.notStrictEqual(blank.setupDraft.episodeName, start.setupDraft.episodeName);
 });
 
+test("ACCEPTANCE: applying a saved show identity/template keeps the episode's assigned cast (#36)", () => {
+  library._resetCounters();
+  const store = templateStoreForShow();
+  const show = foundersShow(store); // defaultSpeakers: Sam Rivera, Dana Kim
+
+  // The creator already assigned a cast that differs from the show defaults.
+  const draft = setup.createDraft();
+  draft.episodeName = "Episode 12";
+  draft.speakers = [
+    Object.assign(setup.createSpeaker("Host"), { name: "Marco Vidal" }),
+    Object.assign(setup.createSpeaker("Guest 1"), { name: "Lena Park" }),
+    Object.assign(setup.createSpeaker("Guest 2"), { name: "Priya Shah" }),
+  ];
+  const names = (d) => d.speakers.map((s) => s.name);
+  const roles = (d) => d.speakers.map((s) => s.role);
+  const cast = ["Marco Vidal", "Lena Park", "Priya Shah"];
+
+  // The template's own speakers must never overwrite the current cast.
+  assert.deepStrictEqual(names(identity.applyDefaultSpeakers(draft, show)), cast);
+
+  const fromIdentity = identity.buildSetupDraft(show, draft);
+  assert.deepStrictEqual(names(fromIdentity), cast);
+  assert.deepStrictEqual(roles(fromIdentity), ["Host", "Guest 1", "Guest 2"]);
+
+  const start = identity.buildEpisodeStart(show, store, { currentDraft: draft });
+  assert.deepStrictEqual(names(start.setupDraft), cast);
+  // ...while the reusable styling/layout/brand from the template are still applied.
+  assert.strictEqual(start.appliedStyle.presetName, "Split Stage");
+  assert.ok(start.brandKit && start.brandKit.logoLabel === "Founders mark");
+
+  // Applying the saved template canvas rebuilds frames from the CURRENT cast.
+  const episode = setup.summarize(draft);
+  const tpl = templates.getTemplate(store, "tpl-founders");
+  const canvas = templates.applyTemplateForEpisode(tpl, episode, start.styleSelection);
+  const frameNames = (canvas.speakerFrames || []).map((f) => f.name);
+  assert.ok(frameNames.includes("Marco Vidal"));
+  assert.ok(!frameNames.includes("Sam Rivera"));
+
+  // A brand-new episode (no cast yet) still prefills from the show defaults.
+  assert.deepStrictEqual(names(identity.buildSetupDraft(show)).slice(0, 2), ["Sam Rivera", "Dana Kim"]);
+});
+
 console.log(`\nshow identity: ${passed} assertions passed`);

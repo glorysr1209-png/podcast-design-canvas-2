@@ -112,11 +112,26 @@
     return next;
   }
 
+  function hasAssignedCast(draft) {
+    return Boolean(
+      draft &&
+        Array.isArray(draft.speakers) &&
+        draft.speakers.some((speaker) => speaker && trim(speaker.name)),
+    );
+  }
+
   function applyDefaultSpeakers(draft, show) {
     const ES = setupApi();
     const next = clone(draft || ES.createDraft());
     const defaults = show && Array.isArray(show.defaultSpeakers) ? show.defaultSpeakers : [];
     if (!defaults.length) {
+      return sanitizeSetupDraft(next, show);
+    }
+    // A reusable show identity/template carries styling, layout, and brand — never
+    // the cast (#36). Only prefill speakers for an episode that has none of its own
+    // yet; if the creator has already assigned this episode's speakers, keep them
+    // exactly instead of replacing them with the template's speakers.
+    if (hasAssignedCast(next)) {
       return sanitizeSetupDraft(next, show);
     }
     next.speakers = defaults.map((item) => {
@@ -131,8 +146,14 @@
     return sanitizeSetupDraft(next, show);
   }
 
-  function buildSetupDraft(show) {
+  function buildSetupDraft(show, currentDraft) {
     const ES = setupApi();
+    // When an episode already has an assigned cast, start from it so applying the
+    // show identity preserves the current Host/Guest assignments (#36); only fall
+    // back to a fresh draft (prefilled from the show) for a brand-new episode.
+    if (hasAssignedCast(currentDraft)) {
+      return applyDefaultSpeakers(clone(currentDraft), show);
+    }
     const draft = ES.createDraft();
     draft.episodeName = suggestedEpisodeName(show);
     if (show && show.defaultSourceMode) {
@@ -274,7 +295,7 @@
 
   function buildEpisodeStart(show, templateStore, options) {
     const opts = options || {};
-    const setupDraft = buildSetupDraft(show);
+    const setupDraft = buildSetupDraft(show, opts.currentDraft);
     const presentation = buildAppliedPresentation(show, templateStore, setupDraft, opts.templateId);
     const identity = summarizeShowIdentity(show, presentation);
 
