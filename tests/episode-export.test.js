@@ -98,9 +98,42 @@ test("startExport blocks when required choices are missing", () => {
   assert.strictEqual(blocked.state.status, "draft");
 });
 
-test("runExport completes with a ready-to-download filename", () => {
+test("startExport blocks when publish review is not approved", () => {
+  const review = require("../app/publish-review.js");
+  const contextApi = require("../app/social-context.js");
   const episode = setup.summarize(completeUploadDraft());
   const ctx = completeContext(episode);
+  ctx.publishReviewApproved = false;
+  ctx.publishReview = review.createReview(episode, {
+    audioPolish: ctx.audioPolish,
+    appliedStyle: ctx.appliedStyle,
+    templateName: ctx.templateName,
+    contextApproved: true,
+    contextSummary: contextApi.summarizeReview(contextApi.approveReview(contextApi.createReview(episode))),
+    momentsSummary: ctx.momentsSummary,
+    captionCount: 1,
+  });
+  const job = exportApi.createExport(episode);
+  const blocked = exportApi.startExport(job, episode, ctx);
+  assert.strictEqual(blocked.ok, false);
+  assert.ok(blocked.error.toLowerCase().includes("publish review"));
+});
+
+test("runExport completes with a ready-to-download filename", () => {
+  const review = require("../app/publish-review.js");
+  const contextApi = require("../app/social-context.js");
+  const episode = setup.summarize(completeUploadDraft());
+  const ctx = completeContext(episode);
+  ctx.publishReview = review.approveReview(review.createReview(episode, {
+    audioPolish: ctx.audioPolish,
+    appliedStyle: ctx.appliedStyle,
+    templateName: ctx.templateName,
+    contextApproved: true,
+    contextSummary: contextApi.summarizeReview(contextApi.approveReview(contextApi.createReview(episode))),
+    momentsSummary: ctx.momentsSummary,
+    captionCount: 1,
+  })).review;
+  ctx.publishReviewApproved = true;
   const job = exportApi.createExport(episode, { templateName: "Founders Unfiltered" });
   const result = exportApi.runExport(job, episode, ctx);
 
@@ -115,12 +148,26 @@ test("runExport completes with a ready-to-download filename", () => {
 });
 
 test("ACCEPTANCE: review episode choices, pick export options, start export, reach ready state", () => {
+  const review = require("../app/publish-review.js");
+  const contextApi = require("../app/social-context.js");
   const draft = completeUploadDraft();
   assert.strictEqual(setup.validateDraft(draft).ok, true);
 
   const episode = setup.summarize(draft);
   const ctx = completeContext(episode);
+  ctx.publishReview = review.createReview(episode, {
+    audioPolish: ctx.audioPolish,
+    appliedStyle: ctx.appliedStyle,
+    templateName: ctx.templateName,
+    contextApproved: true,
+    contextSummary: contextApi.summarizeReview(contextApi.approveReview(contextApi.createReview(episode))),
+    momentsSummary: ctx.momentsSummary,
+    captionCount: 1,
+  });
+  ctx.publishReview = review.approveReview(ctx.publishReview).review;
+  ctx.publishReviewApproved = true;
   assert.strictEqual(exportApi.validateReadiness(ctx).ok, true);
+  assert.strictEqual(exportApi.validateExportAuthorization(ctx).ok, true);
 
   let job = exportApi.createExport(episode, { templateName: "Founders Unfiltered" });
   job = exportApi.updateOption(job, "platform", "youtube");

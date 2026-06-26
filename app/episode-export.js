@@ -64,13 +64,55 @@
     if (missing.indexOf("style") >= 0) {
       needs.push("choose a visual style");
     }
+    if (missing.indexOf("review") >= 0) {
+      needs.push("approve the publish review");
+    }
     if (!needs.length) {
       return "";
     }
     if (needs.length === 1) {
       return `Please ${needs[0]} before exporting.`;
     }
-    return `Please ${needs[0]} and ${needs[1]} before exporting.`;
+    if (needs.length === 2) {
+      return `Please ${needs[0]} and ${needs[1]} before exporting.`;
+    }
+    return `Please ${needs[0]}, ${needs[1]}, and ${needs[2]} before exporting.`;
+  }
+
+  function publishReviewApi() {
+    if (typeof module !== "undefined" && module.exports && typeof require === "function") {
+      return require("./publish-review.js");
+    }
+    const g = typeof window !== "undefined" ? window : globalThis;
+    return g.PdcPublishReview;
+  }
+
+  function validatePublishReviewGate(context) {
+    const ctx = context || {};
+    const PR = publishReviewApi();
+    if (ctx.publishReview && PR) {
+      return PR.validateExportGate(ctx.publishReview);
+    }
+    if (ctx.publishReviewApproved) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error: "Complete the publish review before exporting.",
+      missing: ["review"],
+    };
+  }
+
+  function validateExportAuthorization(context) {
+    const readiness = validateReadiness(context);
+    if (!readiness.ok) {
+      return readiness;
+    }
+    const reviewGate = validatePublishReviewGate(context);
+    if (!reviewGate.ok) {
+      return reviewGate;
+    }
+    return { ok: true };
   }
 
   function validateReadiness(context) {
@@ -161,7 +203,7 @@
   }
 
   function startExport(state, episodeSummary, context) {
-    const check = validateReadiness(context);
+    const check = validateExportAuthorization(context);
     if (!check.ok) {
       return { ok: false, error: check.error, state: clone(state || createExport(episodeSummary)) };
     }
@@ -219,6 +261,8 @@
     getCaptionMode,
     createExport,
     validateReadiness,
+    validatePublishReviewGate,
+    validateExportAuthorization,
     updateOption,
     buildFinalSummary,
     startExport,

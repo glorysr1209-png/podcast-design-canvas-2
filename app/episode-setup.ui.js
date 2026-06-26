@@ -72,6 +72,7 @@
   let contextApproved = false;
   let publishReview = null;
   let publishReviewApproved = false;
+  let publishReviewApprovedAt = null;
   const LIB_STORAGE_KEY = "pdc-show-library";
   const EPISODE_SESSIONS_KEY = "pdc-episode-sessions";
   let showLibrary = { shows: [] };
@@ -310,6 +311,7 @@
       appliedAudioPolish: appliedAudioPolish,
       contextApproved: contextApproved,
       publishReviewApproved: publishReviewApproved,
+      publishReviewApprovedAt: publishReviewApprovedAt,
       activeTemplateId: activeTemplateId,
       lastView: lastView,
       setupComplete: ES.validateDraft(state).ok,
@@ -345,6 +347,7 @@
     appliedAudioPolish = data.appliedAudioPolish || null;
     contextApproved = Boolean(data.contextApproved);
     publishReviewApproved = Boolean(data.publishReviewApproved);
+    publishReviewApprovedAt = data.publishReviewApprovedAt || null;
     activeTemplateId = data.activeTemplateId || null;
     lastView = data.lastView || "setup";
     if (SI && activeShowId && LIB) {
@@ -1512,6 +1515,7 @@
     contextApproved = false;
     publishReview = null;
     publishReviewApproved = false;
+    publishReviewApprovedAt = null;
     startingFromShowIdentity = false;
     showIdentitySummary = null;
     activeEpisodeId = null;
@@ -1574,6 +1578,7 @@
     exportJob = null;
     publishReview = null;
     publishReviewApproved = false;
+    publishReviewApprovedAt = null;
     lastView = "style";
     const summary = ES.summarize(state);
     setPageIntro("episode-setup");
@@ -1666,6 +1671,7 @@
     exportJob = null;
     publishReview = null;
     publishReviewApproved = false;
+    publishReviewApprovedAt = null;
     contextApproved = false;
     contextReview = null;
     lastView = "setup";
@@ -2570,12 +2576,17 @@
       return null;
     }
     const next = PR.createReview(summary, buildReviewContext(summary));
-    if (publishReview && publishReview.approved) {
+    if ((publishReview && publishReview.approved) || publishReviewApproved) {
       if (PR.canApprove(next)) {
         next.approved = true;
-        next.approvedAt = publishReview.approvedAt;
+        next.approvedAt = (publishReview && publishReview.approvedAt) || publishReviewApprovedAt || Date.now();
+        publishReviewApproved = true;
+        if (!publishReviewApprovedAt) {
+          publishReviewApprovedAt = next.approvedAt;
+        }
       } else {
         publishReviewApproved = false;
+        publishReviewApprovedAt = null;
       }
     }
     publishReview = next;
@@ -2641,7 +2652,7 @@
       return;
     }
     if (target === "export") {
-      renderExport(summary);
+      navigateExportOrReview(summary);
       return;
     }
     renderWorkspace(summary);
@@ -2776,7 +2787,19 @@
       correctionSummary: correctionReview && correctionReview.approved && TC
         ? TC.summarizeCorrection(correctionReview)
         : null,
+      publishReviewApproved: publishReviewApproved,
+      publishReview: publishReview,
     };
+  }
+
+  function navigateExportOrReview(summary) {
+    refreshPublishReview(summary);
+    const reviewGate = PR ? PR.validateExportGate(publishReview) : { ok: true };
+    if (!reviewGate.ok) {
+      renderPublishReview(summary);
+      return;
+    }
+    renderExport(summary);
   }
 
   function renderWorkspacePrimaryAction(currentStage, summary) {
@@ -3072,7 +3095,9 @@
       }
       publishReview = result.review;
       publishReviewApproved = true;
+      publishReviewApprovedAt = publishReview.approvedAt || Date.now();
       approveError.hidden = true;
+      persistEpisodeSession();
       renderPublishReview(summary);
     });
 
@@ -3256,7 +3281,7 @@
     refreshPublishReview(summary);
     const reviewGate = PR ? PR.validateExportGate(publishReview) : { ok: true };
     if (!reviewGate.ok) {
-      renderExport(summary);
+      navigateExportOrReview(summary);
       return;
     }
 
@@ -3365,7 +3390,7 @@
     view.appendChild(previewCard);
 
     const toExport = el("button", { type: "button", class: "primary" }, "Continue to export →");
-    toExport.addEventListener("click", () => renderExport(summary));
+    toExport.addEventListener("click", () => navigateExportOrReview(summary));
     const correctionButton = TC
       ? el(
         "button",
@@ -3572,6 +3597,9 @@
       startButton.addEventListener("click", () => {
         const result = EXP.runExport(exportJob, summary, ctx);
         if (!result.ok) {
+          if (PR && result.error && result.error.indexOf("publish review") >= 0) {
+            renderPublishReview(summary);
+          }
           return;
         }
         exportJob = result.state;
