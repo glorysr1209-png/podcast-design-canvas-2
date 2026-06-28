@@ -2053,6 +2053,27 @@ button.ghost:hover,
   padding: 4px 10px;
 }
 
+.audio-track-badge-polished {
+  color: #1a7f4b;
+  background: rgba(26, 127, 75, 0.12);
+}
+
+.audio-track-download {
+  display: inline-block;
+  margin-top: 8px;
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1a7f4b;
+  text-decoration: underline;
+}
+
+.audio-apply-error {
+  margin: 12px 0 0;
+  font-weight: 600;
+  color: #b4232a;
+}
+
 .audio-summary-preset {
   font-weight: 700;
   font-size: 16px;

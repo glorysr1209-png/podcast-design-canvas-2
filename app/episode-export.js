@@ -157,6 +157,10 @@
     if (ctx.audioPolish && ctx.audioPolish.presetName) {
       lines.push(`Audio: ${ctx.audioPolish.presetName} (${ctx.audioPolish.treatmentLine || "treatment applied"})`);
     }
+    if (ctx.audioPolish && ctx.audioPolish.polishedTrackCount) {
+      const count = ctx.audioPolish.polishedTrackCount;
+      lines.push(`Audio outputs: exporting ${count} rendered polished WAV track${count === 1 ? "" : "s"} (not the raw originals)`);
+    }
     if (ctx.appliedStyle && ctx.appliedStyle.presetName) {
       lines.push(
         `Visual style: ${ctx.appliedStyle.presetName} · ${ctx.appliedStyle.layoutLabel || "layout"} · ${ctx.appliedStyle.pacingLabel || "pacing"}`,

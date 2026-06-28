@@ -156,7 +156,88 @@
     return `${preset.name} treatment · ${name} · ${sourceCue}`;
   }
 
-  function summarizePolish(polish) {
+  // ---- Real processing settings + outputs (#257) -----------------------------
+  // The creator-facing Light/Balanced/Strong choices map to processing intensities the
+  // audio engine applies as real DSP to the decoded imported media.
+  const LEVEL_INTENSITY = { light: 0.34, balanced: 0.67, strong: 1 };
+
+  function intensityFor(levelId) {
+    return Object.prototype.hasOwnProperty.call(LEVEL_INTENSITY, levelId)
+      ? LEVEL_INTENSITY[levelId]
+      : LEVEL_INTENSITY.balanced;
+  }
+
+  function levelsToSettings(polish) {
+    const state = polish || createPolish({});
+    return {
+      noiseCleanup: intensityFor(state.noiseCleanup),
+      leveling: intensityFor(state.leveling),
+      speechClarity: intensityFor(state.speechClarity),
+      enhancement: intensityFor(state.enhancement),
+    };
+  }
+
+  function settingsSignature(polish) {
+    const state = polish || createPolish({});
+    return [state.presetId, state.noiseCleanup, state.leveling, state.speechClarity, state.enhancement].join(":");
+  }
+
+  function outputSlug(value) {
+    const text = (typeof value === "string" ? value : "").trim().toLowerCase();
+    const slug = text.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    return slug || "track";
+  }
+
+  function polishedFileName(name, role, presetId) {
+    const stem = outputSlug(name && name !== "Unnamed speaker" ? name : role);
+    return `${stem}-${presetId || "polish"}-polished.wav`;
+  }
+
+  // Build the per-track polished record from REAL engine output metadata produced by
+  // processing the imported media bytes. `output` carries the actual byteLength, duration,
+  // checksum, and measured loudness of the encoded polished WAV.
+  function buildPolishedRecord(speaker, presetId, output) {
+    const data = output || {};
+    const role = (speaker && speaker.role) || "Speaker";
+    const name = (speaker && speaker.name) || "Unnamed speaker";
+    return {
+      trackIndex: (speaker && speaker.trackIndex) || 1,
+      role: role,
+      name: name,
+      status: data.byteLength > 44 ? "polished" : "failed",
+      presetId: presetId,
+      fileName: polishedFileName(name, role, presetId),
+      assetId: data.assetId || "",
+      byteLength: Number(data.byteLength) || 0,
+      durationSec: Number(data.durationSec) || 0,
+      checksum: data.checksum || "",
+      inputRms: Number(data.inputRms) || 0,
+      outputRms: Number(data.outputRms) || 0,
+      peak: Number(data.peak) || 0,
+      changed: Boolean(data.changed),
+      sampleRate: Number(data.sampleRate) || 0,
+      fromRealMedia: Boolean(data.fromRealMedia),
+      original: {
+        sourceLabel: (speaker && speaker.sourceLabel) || "",
+        assetId: (speaker && speaker.sourceMedia && speaker.sourceMedia.assetId) || "",
+        byteLength: (speaker && speaker.sourceMedia && Number(speaker.sourceMedia.byteLength)) || 0,
+      },
+    };
+  }
+
+  function restorePolish(appliedSummary, episodeSummary) {
+    const applied = appliedSummary || {};
+    const base = createPolish(episodeSummary);
+    return Object.assign(base, {
+      presetId: applied.presetId || base.presetId,
+      noiseCleanup: applied.noiseCleanup || base.noiseCleanup,
+      leveling: applied.leveling || base.leveling,
+      speechClarity: applied.speechClarity || base.speechClarity,
+      enhancement: applied.enhancement || base.enhancement,
+    });
+  }
+
+  function summarizePolish(polish, applied) {
     const state = polish || createPolish({});
     const preset = getPreset(state.presetId);
     const controlSummary = CONTROLS.map((control) => {
@@ -165,7 +246,7 @@
     });
     const speakers = Array.isArray(state.speakers) ? state.speakers : [];
     const sourceMediaCount = speakers.reduce((total, speaker) => total + (speaker && speaker.hasSourceMedia ? 1 : 0), 0);
-    return {
+    const summary = {
       presetId: preset.id,
       presetName: preset.name,
       tagline: preset.tagline,
@@ -181,7 +262,33 @@
       sourceMediaCount,
       sourceMediaReady: speakers.length > 0 && sourceMediaCount === speakers.length,
       treatmentLine: controlSummary.join(" · "),
+      signature: settingsSignature(state),
+      polished: false,
+      polishedTrackCount: 0,
     };
+    if (applied && applied.complete && Array.isArray(applied.tracks)) {
+      const saved = applied.tracks.filter((track) => track && track.status === "polished");
+      summary.polished = saved.length > 0;
+      summary.polishedTrackCount = saved.length;
+      summary.polishedSignature = applied.signature || summary.signature;
+      summary.polishedBytes = saved.reduce((total, track) => total + (track.byteLength || 0), 0);
+      summary.polishedRealMediaCount = saved.reduce((total, track) => total + (track.fromRealMedia ? 1 : 0), 0);
+      summary.polishedTracks = saved.map((track) => ({
+        trackIndex: track.trackIndex,
+        role: track.role,
+        name: track.name,
+        status: track.status,
+        fileName: track.fileName,
+        assetId: track.assetId,
+        byteLength: track.byteLength,
+        durationSec: track.durationSec,
+        checksum: track.checksum,
+        changed: track.changed,
+        fromRealMedia: track.fromRealMedia,
+      }));
+      summary.appliedAt = applied.appliedAt || Date.now();
+    }
+    return summary;
   }
 
   // Episode review / export path — rolls audio treatment up with other episode choices.
@@ -192,6 +299,9 @@
     const lines = [];
     if (audio.presetName) {
       lines.push(`Audio: ${audio.presetName} (${audio.treatmentLine})`);
+    }
+    if (audio.polishedTrackCount) {
+      lines.push(`Audio outputs: ${audio.polishedTrackCount} polished WAV track${audio.polishedTrackCount === 1 ? "" : "s"} rendered (export uses these, not the raw originals)`);
     }
     if (options.styleName) {
       lines.push(`Visual style: ${options.styleName}`);
@@ -204,6 +314,7 @@
       speakerCount: episode.speakerCount || 0,
       audioPreset: audio.presetName || "",
       audioTreatment: audio.treatmentLine || "",
+      polishedTrackCount: audio.polishedTrackCount || 0,
       styleName: options.styleName || "",
       templateName: options.templateName || "",
       readyForExport: Boolean(audio.presetName),
@@ -224,6 +335,11 @@
     applyPreset,
     updateControl,
     speakerIndicator,
+    levelsToSettings,
+    settingsSignature,
+    polishedFileName,
+    buildPolishedRecord,
+    restorePolish,
     summarizePolish,
     buildReviewSummary,
   };

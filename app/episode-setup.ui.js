@@ -14,6 +14,7 @@
   const ES = window.PdcEpisodeSetup;
   const STY = window.PdcEpisodeStyle;
   const AP = window.PdcAudioPolish;
+  const ENG = window.PdcAudioEngine;
   const CL = window.PdcCanvasLayers;
   const CE = window.PdcCanvasEditor;
   const TM = window.PdcShowTemplates;
@@ -374,6 +375,181 @@
       }));
       return speaker.sourceMedia;
     }));
+  }
+
+  // ---- Real audio polish: process the preserved imported media (#257) ---------
+  // In-session object URLs for the rendered polished WAVs, keyed by track index, so the
+  // creator can download the real polished audio right after applying.
+  let polishedDownloadUrls = {};
+
+  function readSourceMediaRecord(assetId) {
+    if (!assetId) return Promise.resolve(null);
+    return openSourceMediaDb().then((db) => new Promise((resolve) => {
+      let record = null;
+      const tx = db.transaction(SOURCE_MEDIA_STORE, "readonly");
+      const request = tx.objectStore(SOURCE_MEDIA_STORE).get(assetId);
+      request.onsuccess = () => { record = request.result || null; };
+      tx.oncomplete = () => { db.close(); resolve(record); };
+      tx.onerror = () => { db.close(); resolve(null); };
+    })).catch(() => null);
+  }
+
+  function dataUrlToArrayBuffer(dataUrl) {
+    const comma = (dataUrl || "").indexOf(",");
+    if (comma < 0) return null;
+    const base64 = dataUrl.slice(comma + 1);
+    try {
+      const bytes = ENG.base64ToBytes(base64);
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // Retrieve the real bytes of the imported media — either the IndexedDB blob saved on
+  // import, or the inline data URL fallback. Returns null when nothing real is stored.
+  function loadSourceArrayBuffer(media) {
+    if (!media) return Promise.resolve(null);
+    if (media.storage === "inline" && media.dataUrl) {
+      return Promise.resolve(dataUrlToArrayBuffer(media.dataUrl));
+    }
+    if (!media.assetId) return Promise.resolve(null);
+    return readSourceMediaRecord(media.assetId).then((record) => {
+      if (record && record.blob && typeof record.blob.arrayBuffer === "function") {
+        return record.blob.arrayBuffer();
+      }
+      if (record && record.dataUrl) return dataUrlToArrayBuffer(record.dataUrl);
+      return null;
+    });
+  }
+
+  // Decode arbitrary imported media (mp3/mp4/wav/...) to mono samples. Prefers Web Audio
+  // (handles any container the browser supports); falls back to the WAV decoder.
+  function decodeArrayBufferToMono(buffer) {
+    if (!buffer || !buffer.byteLength) return Promise.resolve(null);
+    const Ctx = (typeof window !== "undefined") && (window.AudioContext || window.webkitAudioContext);
+    if (Ctx) {
+      return new Promise((resolve) => {
+        let ctx;
+        try { ctx = new Ctx(); } catch (err) { ctx = null; }
+        if (!ctx) { resolve(decodeWavFallback(buffer)); return; }
+        const finish = (value) => { try { ctx.close(); } catch (e) { /* ignore */ } resolve(value); };
+        try {
+          const promise = ctx.decodeAudioData(buffer.slice(0));
+          if (promise && typeof promise.then === "function") {
+            promise.then((audioBuffer) => finish(fromAudioBuffer(audioBuffer)))
+              .catch(() => finish(decodeWavFallback(buffer)));
+          } else {
+            ctx.decodeAudioData(buffer.slice(0),
+              (audioBuffer) => finish(fromAudioBuffer(audioBuffer)),
+              () => finish(decodeWavFallback(buffer)));
+          }
+        } catch (err) {
+          finish(decodeWavFallback(buffer));
+        }
+      });
+    }
+    return Promise.resolve(decodeWavFallback(buffer));
+  }
+
+  function fromAudioBuffer(audioBuffer) {
+    if (!audioBuffer) return null;
+    const channels = [];
+    for (let c = 0; c < audioBuffer.numberOfChannels; c += 1) {
+      channels.push(audioBuffer.getChannelData(c));
+    }
+    return { samples: ENG.downmixToMono(channels), sampleRate: audioBuffer.sampleRate };
+  }
+
+  function decodeWavFallback(buffer) {
+    try {
+      const decoded = ENG.decodeWav(new Uint8Array(buffer));
+      if (decoded && decoded.samples && decoded.samples.length) return decoded;
+    } catch (err) { /* ignore */ }
+    return null;
+  }
+
+  function savePolishedRecord(assetId, blob, meta) {
+    const record = Object.assign({ assetId: assetId, blob: blob, kind: "polished" }, meta || {});
+    return saveSourceMediaBlob(record).catch(() => record);
+  }
+
+  // Process one speaker's preserved media into a real polished WAV. Resolves with output
+  // metadata; fromRealMedia is false when there are no real bytes to transform.
+  function processSpeakerTrack(speaker, settings, presetId, signature) {
+    const media = speaker && speaker.sourceMedia;
+    if (!ENG || !media || (!media.assetId && !media.dataUrl)) {
+      return Promise.resolve({ fromRealMedia: false, byteLength: 0 });
+    }
+    return loadSourceArrayBuffer(media).then((buffer) => {
+      if (!buffer) return { fromRealMedia: false, byteLength: 0 };
+      return decodeArrayBufferToMono(buffer).then((decoded) => {
+        if (!decoded || !decoded.samples || !decoded.samples.length) {
+          return { fromRealMedia: false, byteLength: 0 };
+        }
+        const result = ENG.polishSamples(decoded.samples, settings, decoded.sampleRate);
+        const sourceStem = media.assetId || `speaker-${speaker.trackIndex || 1}`;
+        const polishedKey = `polished:${sourceStem}:${signature}`;
+        const blob = (typeof Blob !== "undefined") ? new Blob([result.wav], { type: "audio/wav" }) : null;
+        const finalize = () => {
+          if (blob && typeof URL !== "undefined" && URL.createObjectURL) {
+            try { polishedDownloadUrls[speaker.trackIndex] = URL.createObjectURL(blob); } catch (e) { /* ignore */ }
+          }
+          return {
+            assetId: polishedKey,
+            byteLength: result.byteLength,
+            durationSec: result.durationSec,
+            checksum: result.checksum,
+            inputRms: result.inputRms,
+            outputRms: result.outputRms,
+            peak: result.peak,
+            changed: result.changed,
+            sampleRate: result.sampleRate,
+            fromRealMedia: true,
+          };
+        };
+        if (!blob) return finalize();
+        return savePolishedRecord(polishedKey, blob, {
+          byteLength: result.byteLength,
+          checksum: result.checksum,
+          sourceAssetId: media.assetId || "",
+          mimeType: "audio/wav",
+          storedAt: Date.now(),
+        }).then(finalize);
+      });
+    }).catch(() => ({ fromRealMedia: false, byteLength: 0 }));
+  }
+
+  // Render real polished WAVs for every assigned speaker and assemble the applied summary.
+  function applyAudioPolishReal() {
+    const settings = AP.levelsToSettings(audioPolish);
+    const signature = AP.settingsSignature(audioPolish);
+    const presetId = audioPolish.presetId;
+    const speakers = Array.isArray(audioPolish.speakers) ? audioPolish.speakers : [];
+    polishedDownloadUrls = {};
+    return Promise.all(speakers.map((speaker) => processSpeakerTrack(speaker, settings, presetId, signature)
+      .then((output) => AP.buildPolishedRecord(speaker, presetId, Object.assign({ fromRealMedia: output.fromRealMedia }, output)))))
+      .then((tracks) => {
+        const polished = tracks.filter((track) => track && track.status === "polished");
+        return {
+          complete: tracks.length > 0 && polished.length === tracks.length,
+          presetId: presetId,
+          signature: signature,
+          tracks: tracks,
+          renderedCount: polished.length,
+          appliedAt: Date.now(),
+        };
+      });
+  }
+
+  function ensureAudioPolish(summary) {
+    if (audioPolish) return audioPolish;
+    if (appliedAudioPolish && appliedAudioPolish.polished && AP.restorePolish) {
+      audioPolish = AP.restorePolish(appliedAudioPolish, summary);
+    } else {
+      audioPolish = AP.createPolish(summary);
+    }
+    return audioPolish;
   }
 
   function episodeSessionKey(showId, episodeId) {
@@ -2900,9 +3076,6 @@
       return;
     }
     if (target === "audio") {
-      if (!audioPolish) {
-        audioPolish = AP.createPolish(summary);
-      }
       renderAudioPolish(summary);
       return;
     }
@@ -2946,9 +3119,6 @@
       return;
     }
     if (target === "audio") {
-      if (!audioPolish) {
-        audioPolish = AP.createPolish(summary);
-      }
       renderAudioPolish(summary);
       return;
     }
@@ -4937,10 +5107,15 @@
 
   // ---- Audio polish (#15) -----------------------------------------------------
 
-  function renderAudioPolish(summary) {
-    if (!audioPolish) {
-      audioPolish = AP.createPolish(summary);
-    }
+  function currentPolishedTracks() {
+    if (!appliedAudioPolish || !appliedAudioPolish.polished) return null;
+    if (appliedAudioPolish.polishedSignature !== AP.settingsSignature(audioPolish)) return null;
+    return appliedAudioPolish.polishedTracks || null;
+  }
+
+  function renderAudioPolish(summary, opts) {
+    ensureAudioPolish(summary);
+    const options = opts || {};
     root.innerHTML = "";
     setStep("Step 3 of 8 · Audio polish");
 
@@ -4999,31 +5174,69 @@
     tracksCard.appendChild(
       el("p", { class: "hint" }, "Each imported source receives the treatment you choose above."),
     );
+    const polishedTracks = currentPolishedTracks();
+    const polishedByIndex = {};
+    (polishedTracks || []).forEach((track) => { polishedByIndex[track.trackIndex] = track; });
     const trackList = el("div", { class: "audio-track-list" });
     audioPolish.speakers.forEach((track) => {
-      trackList.appendChild(
-        el("div", { class: "audio-track" },
-          el("div", { class: "audio-track-main" },
-            el("span", { class: "role-pill" }, track.role),
-            el("span", { class: "summary-name" }, track.name),
-          ),
-          el("p", { class: "summary-source" }, track.sourceLabel),
-          el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)),
+      const polished = polishedByIndex[track.trackIndex];
+      const main = el("div", { class: "audio-track" },
+        el("div", { class: "audio-track-main" },
+          el("span", { class: "role-pill" }, track.role),
+          el("span", { class: "summary-name" }, track.name),
         ),
+        el("p", { class: "summary-source" }, track.sourceLabel),
       );
+      if (polished && polished.status === "polished") {
+        main.appendChild(
+          el("span", { class: "audio-track-badge audio-track-badge-polished" },
+            `Polished WAV · ${polished.durationSec}s · ${polished.fileName}`),
+        );
+        const url = polishedDownloadUrls[track.trackIndex];
+        if (url) {
+          main.appendChild(
+            el("a", { class: "audio-track-download", href: url, download: polished.fileName },
+              "Download polished audio"),
+          );
+        }
+      } else {
+        main.appendChild(el("span", { class: "audio-track-badge" }, AP.speakerIndicator(audioPolish, track)));
+      }
+      trackList.appendChild(main);
     });
     tracksCard.appendChild(trackList);
     grid.appendChild(tracksCard);
     view.appendChild(grid);
 
+    if (options.applyError) {
+      view.appendChild(el("p", { class: "audio-apply-error" }, options.applyError));
+    }
+
     const applyButton = el("button", { type: "button", class: "primary" }, "Apply audio & continue →");
     applyButton.addEventListener("click", () => {
-      appliedAudioPolish = AP.summarizePolish(audioPolish);
-      if (STY && !appliedStyle) {
-        renderStyle(summary);
-      } else {
-        renderWorkspace(summary);
-      }
+      applyButton.disabled = true;
+      applyButton.textContent = "Rendering polished audio…";
+      applyAudioPolishReal().then((applied) => {
+        if (!applied.complete) {
+          renderAudioPolish(summary, {
+            applyError: applied.tracks.length
+              ? "Couldn't render polished audio for every track. Make sure each speaker has imported media bytes (upload mode), then apply again."
+              : "Add at least one speaker with imported media before applying audio polish.",
+          });
+          return;
+        }
+        appliedAudioPolish = AP.summarizePolish(audioPolish, applied);
+        persistEpisodeSession();
+        if (STY && !appliedStyle) {
+          renderStyle(summary);
+        } else {
+          renderWorkspace(summary);
+        }
+      }).catch(() => {
+        renderAudioPolish(summary, {
+          applyError: "Audio processing failed unexpectedly. Please try applying again.",
+        });
+      });
     });
     const back = el("button", { type: "button", class: "ghost" }, "← Back to setup");
     back.addEventListener("click", () => {
